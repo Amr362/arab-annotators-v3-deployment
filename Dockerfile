@@ -33,6 +33,7 @@ RUN npm install -g pnpm@10.4.1 && pnpm install --frozen-lockfile
 
 # Copy built application from builder
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist/public ./dist/public
 COPY --from=builder /app/drizzle ./drizzle
 
 # Create non-root user
