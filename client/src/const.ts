@@ -1,28 +1,28 @@
 export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 
-// Generate login URL at runtime so redirect URI reflects the current origin.
+// Generate Google login URL at runtime
 export const getLoginUrl = () => {
-  const oauthPortalUrl = import.meta.env.VITE_OAUTH_PORTAL_URL || "https://oauth.manus.im";
-  const appId = import.meta.env.VITE_APP_ID || "app_73e4e774dcd4ca53";
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const redirectUri = `${window.location.origin}/api/oauth/callback`;
-  const state = btoa(redirectUri);
-
-  if (!oauthPortalUrl) {
-    console.error("VITE_OAUTH_PORTAL_URL is not defined");
-    return "#error-missing-oauth-url";
+  
+  if (!googleClientId) {
+    console.error("VITE_GOOGLE_CLIENT_ID is not defined");
+    return "#error-missing-google-client-id";
   }
 
-  let url: URL;
-  try {
-    url = new URL(`${oauthPortalUrl}/app-auth`);
-  } catch (e) {
-    console.error("Invalid VITE_OAUTH_PORTAL_URL:", oauthPortalUrl);
-    return "#error-invalid-oauth-url";
-  }
-  url.searchParams.set("appId", appId);
-  url.searchParams.set("redirectUri", redirectUri);
-  url.searchParams.set("state", state);
-  url.searchParams.set("type", "signIn");
+  const rootUrl = "https://accounts.google.com/o/oauth2/v2/auth";
+  const options = {
+    redirect_uri: redirectUri,
+    client_id: googleClientId,
+    access_type: "offline",
+    response_type: "code",
+    prompt: "consent",
+    scope: [
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/userinfo.email",
+    ].join(" "),
+  };
 
-  return url.toString();
+  const qs = new URLSearchParams(options);
+  return `${rootUrl}?${qs.toString()}`;
 };

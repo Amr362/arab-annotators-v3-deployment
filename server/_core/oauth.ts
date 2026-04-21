@@ -12,16 +12,24 @@ function getQueryParam(req: Request, key: string): string | undefined {
 export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
-    const state = getQueryParam(req, "state");
 
-    if (!code || !state) {
-      res.status(400).json({ error: "code and state are required" });
+    if (!code) {
+      res.status(400).json({ error: "code is required" });
       return;
     }
 
     try {
-      const tokenResponse = await sdk.exchangeCodeForToken(code, state);
-      const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+      const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+      const host = req.headers.host;
+      const redirectUri = `${protocol}://${host}/api/oauth/callback`;
+
+      const tokens = await sdk.exchangeCodeForToken(code, redirectUri);
+      
+      if (!tokens.id_token) {
+        throw new Error("No ID token received from Google");
+      }
+
+      const userInfo = await sdk.getUserInfo(tokens.id_token);
 
       if (!userInfo.openId) {
         res.status(400).json({ error: "openId missing from user info" });
@@ -32,13 +40,12 @@ export function registerOAuthRoutes(app: Express) {
         openId: userInfo.openId,
         name: userInfo.name || null,
         email: userInfo.email ?? null,
-        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+        loginMethod: "google",
         lastSignedIn: new Date(),
       });
 
       const sessionToken = await sdk.createSessionToken(userInfo.openId, {
         name: userInfo.name || "",
-        expiresInMs: ONE_YEAR_MS,
       });
 
       const cookieOptions = getSessionCookieOptions(req);
@@ -47,7 +54,10 @@ export function registerOAuthRoutes(app: Express) {
       res.redirect(302, "/");
     } catch (error) {
       console.error("[OAuth] Callback failed", error);
-      res.status(500).json({ error: "OAuth callback failed" });
+      res.status(500).json({ 
+        error: "OAuth callback failed",
+        details: error instanceof Error ? error.message : String(error)
+      });
     }
   });
 }
