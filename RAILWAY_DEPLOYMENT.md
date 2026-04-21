@@ -51,10 +51,14 @@ NODE_ENV=production
 VITE_APP_TITLE=Arab Annotators
 VITE_APP_LOGO=https://your-logo-url.png
 
-# OAuth (من Manus)
-VITE_APP_ID=your-app-id
-OAUTH_SERVER_URL=https://api.manus.im
-VITE_OAUTH_PORTAL_URL=https://oauth.manus.im
+# Google OAuth
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+VITE_GOOGLE_CLIENT_ID=your-google-client-id
+
+### إعداد Google OAuth (هام جداً)
+يجب إضافة رابط الـ Callback التالي في إعدادات Google Cloud Console تحت "Authorized redirect URIs":
+`https://arab-annotators-production-011d.up.railway.app/api/oauth/callback`
 
 # API Keys
 BUILT_IN_FORGE_API_KEY=your-api-key
