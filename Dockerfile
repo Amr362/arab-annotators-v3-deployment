@@ -1,6 +1,10 @@
 # Build stage
 FROM node:22-alpine AS builder
 
+# Build-time argument for Google Client ID
+ARG VITE_GOOGLE_CLIENT_ID
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+
 WORKDIR /app
 
 # Copy package files and patches
