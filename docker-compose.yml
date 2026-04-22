@@ -1,0 +1,121 @@
+version: "3.8"
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0-alpine
+    container_name: arab-annotators-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-arab_annotators}
+      MYSQL_USER: ${MYSQL_USER:-annotator}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-annotator_password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    networks:
+      - arab-annotators-network
+
+  # Label Studio
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: arab-annotators-label-studio
+    environment:
+      DJANGO_DB: default
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: label_studio
+      POSTGRES_USER: label_studio
+      POSTGRES_PASSWORD: label_studio_password
+      LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - label_studio_data:/label-studio/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - arab-annotators-network
+
+  # PostgreSQL for Label Studio
+  postgres:
+    image: postgres:15-alpine
+    container_name: arab-annotators-postgres
+    environment:
+      POSTGRES_DB: label_studio
+      POSTGRES_USER: label_studio
+      POSTGRES_PASSWORD: label_studio_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U label_studio"]
+      timeout: 20s
+      retries: 10
+    networks:
+      - arab-annotators-network
+
+  # Arab Annotators Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arab-annotators-app
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mysql://${MYSQL_USER:-annotator}:${MYSQL_PASSWORD:-annotator_password}@mysql:3306/${MYSQL_DATABASE:-arab_annotators}
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+      VITE_APP_ID: ${VITE_APP_ID}
+      OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
+      VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL}
+      OWNER_OPEN_ID: ${OWNER_OPEN_ID}
+      OWNER_NAME: ${OWNER_NAME}
+      BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
+      BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
+      VITE_FRONTEND_FORGE_API_KEY: ${VITE_FRONTEND_FORGE_API_KEY}
+      VITE_FRONTEND_FORGE_API_URL: ${VITE_FRONTEND_FORGE_API_URL}
+      VITE_ANALYTICS_ENDPOINT: ${VITE_ANALYTICS_ENDPOINT}
+      VITE_ANALYTICS_WEBSITE_ID: ${VITE_ANALYTICS_WEBSITE_ID}
+      VITE_APP_TITLE: Arab Annotators
+      VITE_APP_LOGO: /logo.png
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      label-studio:
+        condition: service_started
+    volumes:
+      - ./:/app
+    networks:
+      - arab-annotators-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: arab-annotators-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - app
+      - label-studio
+    networks:
+      - arab-annotators-network
+
+volumes:
+  mysql_data:
+  postgres_data:
+  label_studio_data:
+
+networks:
+  arab-annotators-network:
+    driver: bridge
