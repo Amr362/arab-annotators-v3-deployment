@@ -9,6 +9,7 @@ import Admin from "./pages/Admin";
 import TaskerDashboard from "./pages/TaskerDashboard";
 import QADashboard from "./pages/QADashboard";
 import IAADashboard from "./pages/IAADashboard";
+import ProjectInterfaceBuilder from "./pages/ProjectInterfaceBuilder";
 
 function Router() {
   return (
@@ -19,6 +20,7 @@ function Router() {
       <Route path="/tasker/tasks" component={TaskerDashboard} />
       <Route path="/qa/queue" component={QADashboard} />
       <Route path="/iaa" component={IAADashboard} />
+      <Route path="/admin/projects/:projectId/builder" component={ProjectInterfaceBuilder} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

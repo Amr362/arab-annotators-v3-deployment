@@ -24,6 +24,7 @@ const TABS = [
   { id: "assign", label: "🎯 تعيين المهام" },
   { id: "leaderboard", label: "🏆 المتصدرون" },
   { id: "export", label: "📤 تصدير" },
+  { id: "interface-builder", label: "🛠️ بناء الواجهة" },
 ] as const;
 
 type Tab = typeof TABS[number]["id"];
@@ -162,6 +163,13 @@ export default function AdminDashboard() {
           </button>
         ))}
       </div>
+
+      {/* ── Interface Builder ── */}
+      {tab === "interface-builder" && (
+        <div className="space-y-6">
+          <p className="text-slate-700">يمكنك بناء واجهة التوسيم لكل مشروع من صفحة المشاريع.</p>
+        </div>
+      )}
 
       {/* ── Overview ── */}
       {tab === "overview" && (
@@ -328,6 +336,15 @@ export default function AdminDashboard() {
                 <div className="flex-1 min-w-0">
                   <h3 className="font-bold truncate">{p.name}</h3>
                   {p.description && <p className="text-sm text-gray-500 mt-0.5 truncate">{p.description}</p>}
+                  <div className="flex gap-4 mt-2 text-xs text-gray-500"></div>
+                  <div className="flex gap-2 mt-2">
+                    <Button variant="outline" size="sm" onClick={() => setLocation(`/admin/projects/${p.id}/builder`)}>
+                      <FolderPlus className="h-4 w-4" /> بناء الواجهة
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => { /* TODO: Implement project edit */ }}>
+                      <Pencil className="h-4 w-4" /> تعديل
+                    </Button>
+                  </div>
                   <div className="flex gap-4 mt-2 text-xs text-gray-500">
                     <span>مكتمل: {p.completedItems}/{p.totalItems}</span>
                     <span>مراجَع: {p.reviewedItems}</span>

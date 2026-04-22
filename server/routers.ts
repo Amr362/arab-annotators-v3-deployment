@@ -205,6 +205,40 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create project" });
         }
       }),
+
+    // Update project labeling configuration (admin only)
+    updateLabelingConfig: adminProcedure
+      .input(
+        z.object({
+          projectId: z.number(),
+          annotationType: z.enum(["classification", "multi_classification", "ner", "pairwise", "relations"]),
+          labelsConfig: z.unknown(), // This will be validated more thoroughly on the client side
+          instructions: z.string().optional(),
+          minAnnotations: z.number().min(1).optional(),
+          aiPreAnnotation: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        try {
+          await drizzleDb.update(projects)
+            .set({
+              annotationType: input.annotationType,
+              labelsConfig: input.labelsConfig,
+              instructions: input.instructions,
+              minAnnotations: input.minAnnotations,
+              aiPreAnnotation: input.aiPreAnnotation,
+              updatedAt: new Date(),
+            })
+            .where(eq(projects.id, input.projectId));
+
+          return { success: true };
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل في تحديث إعدادات التوسيم للمشروع" });
+        }
+      }),
   }),
 
   // Task procedures
