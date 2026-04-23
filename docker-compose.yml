@@ -1,21 +1,20 @@
 version: "3.8"
 
 services:
-  # MySQL Database
-  mysql:
-    image: mysql:8.0-alpine
-    container_name: arab-annotators-mysql
+  # PostgreSQL Database for App and Label Studio
+  db:
+    image: postgres:15-alpine
+    container_name: arab-annotators-db
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-arab_annotators}
-      MYSQL_USER: ${MYSQL_USER:-annotator}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-annotator_password}
+      POSTGRES_DB: ${POSTGRES_DB:-arab_annotators}
+      POSTGRES_USER: ${POSTGRES_USER:-annotator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-annotator_password}
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-annotator} -d ${POSTGRES_DB:-arab_annotators}"]
       timeout: 20s
       retries: 10
     networks:
@@ -27,36 +26,19 @@ services:
     container_name: arab-annotators-label-studio
     environment:
       DJANGO_DB: default
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: db
       POSTGRES_PORT: 5432
-      POSTGRES_DB: label_studio
-      POSTGRES_USER: label_studio
-      POSTGRES_PASSWORD: label_studio_password
+      POSTGRES_DB: ${POSTGRES_DB:-arab_annotators}
+      POSTGRES_USER: ${POSTGRES_USER:-annotator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-annotator_password}
       LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: "true"
     ports:
       - "8080:8080"
     volumes:
       - label_studio_data:/label-studio/data
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
-    networks:
-      - arab-annotators-network
-
-  # PostgreSQL for Label Studio
-  postgres:
-    image: postgres:15-alpine
-    container_name: arab-annotators-postgres
-    environment:
-      POSTGRES_DB: label_studio
-      POSTGRES_USER: label_studio
-      POSTGRES_PASSWORD: label_studio_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U label_studio"]
-      timeout: 20s
-      retries: 10
     networks:
       - arab-annotators-network
 
@@ -68,7 +50,7 @@ services:
     container_name: arab-annotators-app
     environment:
       NODE_ENV: production
-      DATABASE_URL: mysql://${MYSQL_USER:-annotator}:${MYSQL_PASSWORD:-annotator_password}@mysql:3306/${MYSQL_DATABASE:-arab_annotators}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-annotator}:${POSTGRES_PASSWORD:-annotator_password}@db:5432/${POSTGRES_DB:-arab_annotators}
       JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
       VITE_APP_ID: ${VITE_APP_ID}
       OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
@@ -86,7 +68,7 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      mysql:
+      db:
         condition: service_healthy
       label-studio:
         condition: service_started
@@ -112,7 +94,6 @@ services:
       - arab-annotators-network
 
 volumes:
-  mysql_data:
   postgres_data:
   label_studio_data:
 

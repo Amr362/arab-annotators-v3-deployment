@@ -21,14 +21,7 @@
 
 ### الخطوة 2: إضافة قاعدة البيانات
 
-#### الخيار أ: استخدام MySQL من Railway
-
-1. في لوحة التحكم، انقر على **"Add"**
-2. اختر **"Database"** → **"MySQL"**
-3. اختر الإصدار الأحدث (8.0+)
-4. انقر على **"Deploy"**
-
-#### الخيار ب: استخدام PostgreSQL
+#### إضافة قاعدة بيانات PostgreSQL
 
 1. في لوحة التحكم، انقر على **"Add"**
 2. اختر **"Database"** → **"PostgreSQL"**
@@ -41,7 +34,7 @@
 
 ```env
 # قاعدة البيانات (سيتم ملؤها تلقائياً من Railway)
-DATABASE_URL=mysql://user:password@host:port/dbname
+DATABASE_URL=postgresql://user:password@host:5432/dbname
 
 # الأمان
 JWT_SECRET=your-super-secret-key-change-this-in-production
@@ -201,7 +194,7 @@ Database → Backups → Create Backup
 
 ```bash
 # عبر Railway CLI
-railway run mysqldump -u user -p password dbname > backup.sql
+railway run pg_dump -U user dbname > backup.sql
 ```
 
 ## الأداء والتحسين

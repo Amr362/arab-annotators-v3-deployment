@@ -45,7 +45,7 @@ tRPC API (Type-safe RPC)
     ↓
 Backend (Express 4)
     ↓
-Database (MySQL/PostgreSQL)
+Database (PostgreSQL)
     ↓
 Label Studio (Annotation UI)
 ```
@@ -65,7 +65,7 @@ Label Studio (Annotation UI)
 
 - Node.js 18+
 - Docker & Docker Compose
-- MySQL 8+ أو PostgreSQL 12+
+- PostgreSQL 12+
 - Railway Account (للنشر)
 
 ## التثبيت المحلي 🚀
@@ -134,7 +134,7 @@ railway up
 ### متغيرات البيئة المطلوبة
 
 ```env
-DATABASE_URL=mysql://user:password@host:port/dbname
+DATABASE_URL=postgresql://user:password@host:5432/dbname
 JWT_SECRET=your-secret-key-here
 NODE_ENV=production
 VITE_APP_TITLE=Arab Annotators
