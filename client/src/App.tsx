@@ -10,6 +10,7 @@ import TaskerDashboard from "./pages/TaskerDashboard";
 import QADashboard from "./pages/QADashboard";
 import IAADashboard from "./pages/IAADashboard";
 import ProjectInterfaceBuilder from "./pages/ProjectInterfaceBuilder";
+import AnnotationPage from "./pages/AnnotationPage";
 
 function Router() {
   return (
@@ -18,6 +19,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/admin" component={Admin} />
       <Route path="/tasker/tasks" component={TaskerDashboard} />
+      <Route path="/tasker/annotate" component={AnnotationPage} />
       <Route path="/qa/queue" component={QADashboard} />
       <Route path="/iaa" component={IAADashboard} />
       <Route path="/admin/projects/:projectId/builder" component={ProjectInterfaceBuilder} />

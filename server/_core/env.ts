@@ -11,4 +11,8 @@ export const ENV = {
   adminEmail: process.env.ADMIN_EMAIL ?? "",
   adminPassword: process.env.ADMIN_PASSWORD ?? "",
   adminName: process.env.ADMIN_NAME ?? "Admin",
+  // Label Studio integration
+  labelStudioUrl: process.env.LABEL_STUDIO_URL ?? "",
+  labelStudioApiKey: process.env.LABEL_STUDIO_API_KEY ?? "",
+  labelStudioWebhookSecret: process.env.LABEL_STUDIO_WEBHOOK_SECRET ?? "",
 };

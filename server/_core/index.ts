@@ -67,6 +67,42 @@ async function startServer() {
     res.status(200).json({ status: "ok", time: new Date().toISOString() });
   });
 
+  // ── Label Studio webhook ──────────────────────────────────────────────────
+  // Capture raw body for HMAC signature validation before JSON parsing.
+  app.post(
+    "/api/webhooks/label-studio",
+    express.raw({ type: "application/json" }),
+    async (req, res) => {
+      try {
+        // Attach raw body for signature validation, then parse JSON manually
+        const rawBody = req.body as Buffer;
+        (req as any).rawBody = rawBody;
+        let payload: unknown;
+        try {
+          payload = JSON.parse(rawBody.toString("utf8"));
+        } catch {
+          res.status(400).json({ error: "Invalid JSON body" });
+          return;
+        }
+        req.body = payload;
+
+        const { validateWebhookSignature, handleLabelStudioWebhook } =
+          await import("./webhooks");
+
+        if (!validateWebhookSignature(req)) {
+          res.status(401).json({ error: "Invalid webhook signature" });
+          return;
+        }
+
+        const result = await handleLabelStudioWebhook(payload as any);
+        res.status(200).json(result);
+      } catch (err: any) {
+        console.error("[Webhook] Error processing Label Studio event:", err);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  );
+
   // ── Auth: check if setup is needed ───────────────────────────────────────
   app.get("/api/auth/setup-status", async (_req, res) => {
     try {

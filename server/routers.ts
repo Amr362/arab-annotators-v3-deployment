@@ -7,6 +7,8 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, isNull, ne } from "drizzle-orm";
 import * as db from "./db";
 import { users, projects, tasks, annotations, qaReviews, statistics, notifications, taskSkips } from "../drizzle/schema";
+import { labelStudioRouter } from "./routers/labelStudio";
+import { webhooksRouter } from "./routers/webhooks";
 
 // Helper to ensure admin role
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -717,6 +719,12 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
+
+  // ── Label Studio integration ──────────────────────────────────────────────
+  labelStudio: labelStudioRouter,
+
+  // ── Webhooks ──────────────────────────────────────────────────────────────
+  webhooks: webhooksRouter,
 });
 
 export type AppRouter = typeof appRouter;
