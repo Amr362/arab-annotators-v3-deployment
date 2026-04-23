@@ -644,23 +644,34 @@ export async function getTaskerFeedback(userId: number) {
 }
 
 // ─── Local Auth helpers ───────────────────────────────────────────────────────
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
-import { promisify } from "util";
-
-const scryptAsync = promisify(scrypt);
+import bcrypt from "bcrypt";
 
 export async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${buf.toString("hex")}.${salt}`;
+  return await bcrypt.hash(password, 10);
 }
 
 export async function verifyPassword(stored: string, supplied: string): Promise<boolean> {
-  const [hashed, salt] = stored.split(".");
-  if (!hashed || !salt) return false;
-  const buf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  const storedBuf = Buffer.from(hashed, "hex");
-  return timingSafeEqual(buf, storedBuf);
+  // Check if it's a bcrypt hash (usually starts with $2b$ or $2a$)
+  if (stored.startsWith("$2")) {
+    return await bcrypt.compare(supplied, stored);
+  }
+  
+  // Fallback for old scrypt hashes (format: hash.salt)
+  try {
+    const [hashed, salt] = stored.split(".");
+    if (hashed && salt) {
+      const { scrypt, timingSafeEqual } = await import("crypto");
+      const { promisify } = await import("util");
+      const scryptAsync = promisify(scrypt);
+      const buf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+      const storedBuf = Buffer.from(hashed, "hex");
+      return timingSafeEqual(buf, storedBuf);
+    }
+  } catch (e) {
+    console.error("[Auth] Error verifying legacy password:", e);
+  }
+  
+  return false;
 }
 
 export async function getUserByEmail(email: string) {
