@@ -9,6 +9,7 @@ import Admin from "./pages/Admin";
 import TaskerDashboard from "./pages/TaskerDashboard";
 import QADashboard from "./pages/QADashboard";
 import IAADashboard from "./pages/IAADashboard";
+import InterfaceBuilder from "./pages/InterfaceBuilder";
 
 function Router() {
   return (
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/" component={Login} />
       <Route path="/login" component={Login} />
       <Route path="/admin" component={Admin} />
+      <Route path="/admin/interface" component={InterfaceBuilder} />
       <Route path="/tasker/tasks" component={TaskerDashboard} />
       <Route path="/qa/queue" component={QADashboard} />
       <Route path="/iaa" component={IAADashboard} />

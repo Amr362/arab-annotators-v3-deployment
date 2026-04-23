@@ -482,7 +482,36 @@ export default function TaskerDashboard() {
                       )}
                     </div>
                     <div className="p-5">
-                      {currentTask && (
+                      {currentTask && projectData?.annotationType === "html_interface" ? (
+                        <div className="rounded-xl overflow-hidden border border-slate-200 bg-white">
+                          <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex items-center gap-2 text-xs text-slate-500">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                            واجهة تفاعلية مخصصة
+                          </div>
+                          <iframe
+                            srcDoc={projectData.instructions ?? ""}
+                            className="w-full border-0"
+                            style={{ minHeight: "360px" }}
+                            sandbox="allow-scripts allow-same-origin"
+                            title="task-interface"
+                            onLoad={(e) => {
+                              // Listen for postMessage result from the interface
+                              const handler = (ev: MessageEvent) => {
+                                if (ev.data?.type === "annotation_result") {
+                                  setAnnotationResult(ev.data.result);
+                                }
+                              };
+                              window.addEventListener("message", handler);
+                              return () => window.removeEventListener("message", handler);
+                            }}
+                          />
+                          {currentTask.content && (
+                            <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-sm text-slate-600 text-right" dir="rtl">
+                              {currentTask.content}
+                            </div>
+                          )}
+                        </div>
+                      ) : currentTask ? (
                         <AnnotationWidget
                           text={currentTask.content}
                           config={labelConfig}
@@ -490,7 +519,7 @@ export default function TaskerDashboard() {
                           onChange={setAnnotationResult}
                           aiSuggestion={aiSuggestion as AnnotationResult | null}
                         />
-                      )}
+                      ) : null}
                     </div>
                   </div>
 
