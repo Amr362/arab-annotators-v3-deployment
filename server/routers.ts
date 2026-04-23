@@ -418,6 +418,8 @@ export const appRouter = router({
         instructions: z.string().optional(),
         minAnnotations: z.number().optional(),
         aiPreAnnotation: z.boolean().optional(),
+        qaAiEnabled: z.boolean().optional(),
+        spamDetection: z.boolean().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const taskContents = input.tasksText
@@ -451,6 +453,8 @@ export const appRouter = router({
                 instructions: input.instructions ?? null,
                 minAnnotations: input.minAnnotations ?? 1,
                 aiPreAnnotation: input.aiPreAnnotation ?? false,
+                qaAiEnabled: input.qaAiEnabled ?? false,
+                spamDetection: input.spamDetection ?? false,
                 updatedAt: new Date(),
               }).where(eq(projects.id, projectId));
             }
@@ -671,6 +675,8 @@ export const appRouter = router({
         instructions: z.string().optional(),
         minAnnotations: z.number().optional(),
         aiPreAnnotation: z.boolean().optional(),
+        qaAiEnabled: z.boolean().optional(),
+        spamDetection: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
         const drizzleDb = await db.getDb();
@@ -682,10 +688,131 @@ export const appRouter = router({
             instructions: input.instructions,
             minAnnotations: input.minAnnotations ?? 1,
             aiPreAnnotation: input.aiPreAnnotation ?? false,
+            qaAiEnabled: input.qaAiEnabled ?? false,
+            spamDetection: input.spamDetection ?? false,
             updatedAt: new Date(),
           })
           .where(eq(projects.id, input.projectId));
         return { success: true };
+      }),
+  }),
+
+  // ── AI tools for QA & Spam ──────────────────────────────────────────────────
+  aiTools: router({
+    // QA: AI review suggestion for a single annotation
+    qaReview: protectedProcedure
+      .input(z.object({ annotationId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return null;
+
+        const rows = await drizzleDb.select().from(annotations).where(eq(annotations.id, input.annotationId)).limit(1);
+        const ann = rows[0];
+        if (!ann) return null;
+
+        const taskRows = await drizzleDb.select().from(tasks).where(eq(tasks.id, ann.taskId)).limit(1);
+        const task = taskRows[0];
+        if (!task) return null;
+
+        const project = await db.getProjectById(task.projectId);
+        if (!project?.qaAiEnabled) return null;
+
+        const config = project.labelsConfig as any;
+        const labels: string[] = config?.labels?.map((l: any) => l.value) ?? [];
+        const annResult = ann.result as any;
+        const annLabel = annResult?.labels?.[0] ?? annResult?.choice ?? JSON.stringify(annResult);
+
+        try {
+          const response = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: "claude-haiku-4-5-20251001",
+              max_tokens: 200,
+              messages: [{
+                role: "user",
+                content: `أنت مراجع جودة لمشروع توسيم نصوص عربية.
+النص: "${task.content}"
+التصنيفات المتاحة: ${labels.join("، ")}
+تصنيف المُوسِّم: "${annLabel}"
+
+هل التصنيف صحيح؟ أجب بـ JSON فقط بهذا الشكل:
+{"verdict": "approve" | "reject" | "uncertain", "confidence": 0-100, "reason": "سبب قصير"}`,
+              }],
+            }),
+          });
+          const data = await response.json() as any;
+          const text = data?.content?.[0]?.text?.trim() ?? "";
+          const clean = text.replace(/```json|```/g, "").trim();
+          return JSON.parse(clean);
+        } catch {
+          return null;
+        }
+      }),
+
+    // Spam detection: check if annotation looks like random/spam
+    spamCheck: protectedProcedure
+      .input(z.object({ annotationId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return null;
+
+        const rows = await drizzleDb.select().from(annotations).where(eq(annotations.id, input.annotationId)).limit(1);
+        const ann = rows[0];
+        if (!ann) return null;
+
+        const taskRows = await drizzleDb.select().from(tasks).where(eq(tasks.id, ann.taskId)).limit(1);
+        const task = taskRows[0];
+        if (!task) return null;
+
+        const project = await db.getProjectById(task.projectId);
+        if (!project?.spamDetection) return null;
+
+        const annResult = ann.result as any;
+        const annLabel = annResult?.labels?.[0] ?? annResult?.choice ?? "";
+        const config = project.labelsConfig as any;
+        const labels: string[] = config?.labels?.map((l: any) => l.value) ?? [];
+
+        try {
+          const response = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: "claude-haiku-4-5-20251001",
+              max_tokens: 150,
+              messages: [{
+                role: "user",
+                content: `هل التصنيف التالي يبدو عشوائياً أو غير جاد؟
+النص: "${task.content}"
+التصنيف المختار: "${annLabel}"
+التصنيفات المتاحة: ${labels.join("، ")}
+
+أجب بـ JSON فقط:
+{"isSpam": true | false, "confidence": 0-100, "reason": "سبب قصير"}`,
+              }],
+            }),
+          });
+          const data = await response.json() as any;
+          const text = data?.content?.[0]?.text?.trim() ?? "";
+          const clean = text.replace(/```json|```/g, "").trim();
+          return JSON.parse(clean);
+        } catch {
+          return null;
+        }
       }),
   }),
 });

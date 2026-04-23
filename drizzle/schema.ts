@@ -43,6 +43,8 @@ export const projects = pgTable("projects", {
   instructions: text("instructions"),
   minAnnotations: integer("minAnnotations").default(1),
   aiPreAnnotation: boolean("aiPreAnnotation").default(false),
+  qaAiEnabled: boolean("qaAiEnabled").default(false),
+  spamDetection: boolean("spamDetection").default(false),
   createdBy: integer("createdBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),

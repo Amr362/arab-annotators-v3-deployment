@@ -3,6 +3,7 @@ import MultiLabelClassifier from "./MultiLabelClassifier";
 import NERAnnotator from "./NERAnnotator";
 import PairwiseComparison from "./PairwiseComparison";
 import RelationsAnnotator from "./RelationsAnnotator";
+import HtmlInterface from "./HtmlInterface";
 import type { ProjectLabelConfig, AnnotationResult } from "./types";
 
 interface Props {
@@ -80,6 +81,16 @@ export default function AnnotationWidget({ text, config, value, onChange, aiSugg
         />
       );
     }
+
+    case "html_interface":
+      return (
+        <HtmlInterface
+          html={config.instructions ?? ""}
+          text={text}
+          onChange={onChange}
+          readOnly={readOnly}
+        />
+      );
 
     default:
       return (

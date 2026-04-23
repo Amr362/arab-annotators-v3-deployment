@@ -1,4 +1,4 @@
-export type AnnotationType = "classification" | "multi_classification" | "ner" | "pairwise" | "relations";
+export type AnnotationType = "classification" | "multi_classification" | "ner" | "pairwise" | "relations" | "html_interface";
 
 export interface LabelOption {
   value: string;

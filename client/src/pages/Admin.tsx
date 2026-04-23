@@ -643,7 +643,23 @@ export default function AdminDashboard() {
                     onChange={e => setProjectForm(f => ({ ...f, aiPreAnnotation: e.target.checked } as any))}
                     className="rounded"
                   />
-                  <span className="text-slate-600">🤖 اقتراحات AI تلقائية</span>
+                  <span className="text-slate-600">🤖 اقتراحات AI للموسِّم</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox"
+                    checked={(projectForm as any).qaAiEnabled ?? false}
+                    onChange={e => setProjectForm(f => ({ ...f, qaAiEnabled: e.target.checked } as any))}
+                    className="rounded"
+                  />
+                  <span className="text-slate-600">🔍 مساعد AI للمراجعة (QA)</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox"
+                    checked={(projectForm as any).spamDetection ?? false}
+                    onChange={e => setProjectForm(f => ({ ...f, spamDetection: e.target.checked } as any))}
+                    className="rounded"
+                  />
+                  <span className="text-slate-600">🛡️ كاشف الإجابات العشوائية</span>
                 </label>
               </div>
             </div>
@@ -681,6 +697,8 @@ export default function AdminDashboard() {
                   instructions: (projectForm as any).instructions,
                   minAnnotations: (projectForm as any).minAnnotations ?? 1,
                   aiPreAnnotation: (projectForm as any).aiPreAnnotation ?? false,
+                  qaAiEnabled: (projectForm as any).qaAiEnabled ?? false,
+                  spamDetection: (projectForm as any).spamDetection ?? false,
                 } as any);
               }}
               disabled={createProject.isPending || !projectForm.name || !projectForm.tasksText.trim()}

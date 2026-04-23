@@ -3,10 +3,47 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { AlertCircle, CheckCircle2, XCircle, TrendingUp, MessageSquare, Keyboard } from "lucide-react";
+import { AlertCircle, CheckCircle2, XCircle, TrendingUp, MessageSquare, Keyboard, Bot, ShieldAlert } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
+
+// ── AI Review Badge component ─────────────────────────────────────────────────
+function AiReviewBadge({ annotationId }: { annotationId: number }) {
+  const { data, isLoading } = trpc.aiTools.qaReview.useQuery({ annotationId }, { retry: false });
+  if (isLoading) return <span className="text-xs text-slate-400 animate-pulse">🤖 AI يحلل...</span>;
+  if (!data) return null;
+  const color = data.verdict === "approve" ? "text-emerald-600 bg-emerald-50 border-emerald-200"
+    : data.verdict === "reject" ? "text-red-600 bg-red-50 border-red-200"
+    : "text-amber-600 bg-amber-50 border-amber-200";
+  const icon = data.verdict === "approve" ? "✅" : data.verdict === "reject" ? "❌" : "⚠️";
+  return (
+    <div className={`flex items-start gap-2 px-3 py-2 rounded-lg border text-xs ${color} mt-2`}>
+      <Bot size={12} className="mt-0.5 flex-shrink-0" />
+      <div>
+        <span className="font-semibold">{icon} AI: {data.verdict === "approve" ? "يُوصي بالقبول" : data.verdict === "reject" ? "يُوصي بالرفض" : "غير محدد"}</span>
+        <span className="opacity-70 mr-1">({data.confidence}% ثقة)</span>
+        {data.reason && <p className="opacity-80 mt-0.5">{data.reason}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ── Spam Badge component ──────────────────────────────────────────────────────
+function SpamBadge({ annotationId }: { annotationId: number }) {
+  const { data, isLoading } = trpc.aiTools.spamCheck.useQuery({ annotationId }, { retry: false });
+  if (isLoading || !data) return null;
+  if (!data.isSpam) return null;
+  return (
+    <div className="flex items-start gap-2 px-3 py-2 rounded-lg border text-xs text-orange-600 bg-orange-50 border-orange-200 mt-2">
+      <ShieldAlert size={12} className="mt-0.5 flex-shrink-0" />
+      <div>
+        <span className="font-semibold">⚠️ محتمل إجابة عشوائية ({data.confidence}% ثقة)</span>
+        {data.reason && <p className="opacity-80 mt-0.5">{data.reason}</p>}
+      </div>
+    </div>
+  );
+}
 
 export default function QADashboard() {
   const { user } = useAuth();
@@ -17,6 +54,7 @@ export default function QADashboard() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
 
+  const [aiAssistVisible, setAiAssistVisible] = useState(true);
   const { data: qaQueue, isLoading, refetch } = trpc.qa.getQueue.useQuery();
   const { data: stats, refetch: refetchStats } = trpc.qa.getStats.useQuery();
 
@@ -137,6 +175,15 @@ export default function QADashboard() {
                 <Keyboard size={14} />اختصارات لوحة المفاتيح
               </Button>
               <Button
+                variant={aiAssistVisible ? "default" : "outline"}
+                size="sm"
+                onClick={() => setAiAssistVisible(v => !v)}
+                className={aiAssistVisible ? "bg-violet-600 hover:bg-violet-700" : ""}
+              >
+                <Bot size={14} className="ml-1" />
+                {aiAssistVisible ? "AI مفعّل" : "AI معطّل"}
+              </Button>
+              <Button
                 variant={batchMode ? "default" : "outline"}
                 size="sm"
                 onClick={() => { setBatchMode(b => !b); setSelectedIds(new Set()); }}
@@ -237,6 +284,13 @@ export default function QADashboard() {
                           <div className="bg-slate-100 rounded p-2 text-xs font-mono text-slate-600 line-clamp-2">
                             {JSON.stringify(item.result).slice(0, 150)}
                           </div>
+                        )}
+                        {/* AI Review & Spam badges */}
+                        {isFocused && aiAssistVisible && (
+                          <>
+                            <AiReviewBadge annotationId={item.id} />
+                            <SpamBadge annotationId={item.id} />
+                          </>
                         )}
                         {/* Action buttons when focused */}
                         {isFocused && isPending && (

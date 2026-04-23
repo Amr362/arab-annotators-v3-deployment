@@ -41,7 +41,14 @@ async function runStartupTasks() {
     await drizzleDb.execute(
       `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "passwordHash" text` as any
     );
-    console.log("[Startup] DB schema up-to-date");
+    // Migration 0004: AI feature flags
+    await drizzleDb.execute(
+      `ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "qaAiEnabled" boolean DEFAULT false` as any
+    );
+    await drizzleDb.execute(
+      `ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "spamDetection" boolean DEFAULT false` as any
+    );
+    console.log("[Startup] DB schema up-to-date — AI flags added");
 
     // Bootstrap admin account from env vars (ADMIN_EMAIL + ADMIN_PASSWORD)
     if (ENV.adminEmail && ENV.adminPassword) {
