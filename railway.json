@@ -8,7 +8,7 @@
   },
   "deploy": {
     "numReplicas": 1,
-    "preDeployCommand": "pnpm db:push",
+
     "startCommand": "pnpm start",
     "restartPolicyMaxRetries": 10
   }
