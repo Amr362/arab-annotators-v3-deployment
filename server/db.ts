@@ -1,5 +1,6 @@
 import { eq, and, sql, desc, count, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { sql } from "drizzle-orm";
 import pg from "pg";
 import { InsertUser, users, projects, tasks, annotations, qaReviews, statistics, notifications, llmSuggestions } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -789,15 +790,15 @@ export async function createProjectWithTasks(opts: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const inserted = await db.insert(projects).values({
+  const [inserted] = await db.insert(projects).values({
     name: opts.name,
     description: opts.description ?? null,
     labelStudioProjectId: opts.labelStudioProjectId,
     totalItems: opts.taskContents.length,
     createdBy: opts.createdBy,
-  }).returning({ id: projects.id });
+  }).returning();
 
-  const projectId = inserted[0].id;
+  const projectId = inserted.id;
 
   if (opts.taskContents.length > 0) {
     const taskRows = opts.taskContents.map((content, i) => ({

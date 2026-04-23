@@ -189,7 +189,7 @@ export const appRouter = router({
         if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
         try {
-          const inserted = await drizzleDb
+          const [inserted] = await drizzleDb
             .insert(projects)
             .values({
               name: input.name,
@@ -198,11 +198,12 @@ export const appRouter = router({
               totalItems: input.totalItems,
               createdBy: ctx.user.id,
             })
-            .returning({ id: projects.id });
+            .returning();
 
-          return await db.getProjectById(inserted[0].id);
-        } catch (error) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create project" });
+          return await db.getProjectById(inserted.id);
+        } catch (error: any) {
+          console.error("[createProject] error:", error?.message ?? error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error?.message ?? "Failed to create project" });
         }
       }),
   }),
@@ -437,7 +438,7 @@ export const appRouter = router({
             taskContents,
           });
 
-          // result.id is the project id (was incorrectly using result.projectId)
+          // result is the inserted project object
           const projectId = result?.id;
 
           // Update annotation config if provided
