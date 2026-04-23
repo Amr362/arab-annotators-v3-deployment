@@ -437,8 +437,11 @@ export const appRouter = router({
             taskContents,
           });
 
+          // result.id is the project id (was incorrectly using result.projectId)
+          const projectId = result?.id;
+
           // Update annotation config if provided
-          if (input.annotationType && result?.projectId) {
+          if (input.annotationType && projectId) {
             const drizzleDb = await db.getDb();
             if (drizzleDb) {
               await drizzleDb.update(projects).set({
@@ -448,13 +451,14 @@ export const appRouter = router({
                 minAnnotations: input.minAnnotations ?? 1,
                 aiPreAnnotation: input.aiPreAnnotation ?? false,
                 updatedAt: new Date(),
-              }).where(eq(projects.id, result.projectId));
+              }).where(eq(projects.id, projectId));
             }
           }
 
-          return result;
-        } catch (e) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل إنشاء المشروع" });
+          return { projectId, taskCount: taskContents.length, name: result?.name };
+        } catch (e: any) {
+          console.error("[createProjectWithTasks] error:", e?.message ?? e);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e?.message ?? "فشل إنشاء المشروع" });
         }
       }),
   }),
