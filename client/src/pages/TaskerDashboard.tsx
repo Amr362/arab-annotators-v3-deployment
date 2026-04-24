@@ -267,12 +267,23 @@ export default function TaskerDashboard() {
       if (!task) { toast("🕊️ لا توجد مهام متاحة حالياً"); return; }
       toast.success("✅ تم تخصيص مهمة جديدة");
       refetch(); refetchStats();
+      setCurrentIdx(0);
     },
     onError: e => toast.error(e.message),
   });
 
   const pendingTasks = (tasks ?? []).filter(t => t.status === "pending" || t.status === "in_progress");
   const currentTask = pendingTasks[currentIdx] ?? null;
+
+  // Auto-fetch next task from queue if no tasks available
+  useEffect(() => {
+    if (pendingTasks.length === 0 && !isLoading) {
+      const timer = setTimeout(() => {
+        getNextTask.mutate({});
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [pendingTasks.length, isLoading]);
 
   const { data: projectData } = trpc.projectConfig.get.useQuery(
     { projectId: currentTask?.projectId ?? 0 }, { enabled: !!currentTask }
@@ -316,17 +327,29 @@ export default function TaskerDashboard() {
       setAnnotationResult(null); timer.reset();
       refetch(); refetchStats();
       setCurrentIdx(i => Math.max(0, Math.min(i, pendingTasks.length - 2)));
+      // Auto-fetch next task if no more tasks available
+      setTimeout(() => {
+        if (pendingTasks.length <= 1) {
+          getNextTask.mutate({});
+        }
+      }, 300);
     },
     onError: e => toast.error(e.message),
   });
 
   const skipTask = trpc.taskSkip.skip.useMutation({
     onSuccess: () => {
-      toast("⏭️ تم تخطي المهمة");
+      toast("⚡ تم تخطي المهمة");
       setShowSkipModal(false); setSkipReason("");
       setAnnotationResult(null); timer.reset();
       refetch(); refetchStats();
       setCurrentIdx(i => Math.max(0, Math.min(i, pendingTasks.length - 2)));
+      // Auto-fetch next task if no more tasks available
+      setTimeout(() => {
+        if (pendingTasks.length <= 1) {
+          getNextTask.mutate({});
+        }
+      }, 300);
     },
     onError: e => toast.error(e.message),
   });
