@@ -644,7 +644,7 @@ export async function getTaskerFeedback(userId: number) {
 }
 
 // ─── Local Auth helpers ───────────────────────────────────────────────────────
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 export async function hashPassword(password: string): Promise<string> {
   return await bcrypt.hash(password, 10);
