@@ -204,6 +204,152 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error?.message ?? "Failed to create project" });
         }
       }),
+
+    // Update project status (admin only)
+    updateStatus: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["active", "paused", "completed"]),
+      }))
+      .mutation(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await drizzleDb.update(projects)
+          .set({ status: input.status, updatedAt: new Date() })
+          .where(eq(projects.id, input.id));
+        return { success: true };
+      }),
+
+    // Update project info (admin only)
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        description: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const updates: Record<string, unknown> = { updatedAt: new Date() };
+        if (input.name !== undefined) updates.name = input.name;
+        if (input.description !== undefined) updates.description = input.description;
+        await drizzleDb.update(projects).set(updates).where(eq(projects.id, input.id));
+        return await db.getProjectById(input.id);
+      }),
+
+    // Delete project and all its tasks (admin only)
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        try {
+          // Delete annotations linked to tasks
+          const projectTasks = await drizzleDb.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, input.id));
+          const taskIds = projectTasks.map(t => t.id);
+          if (taskIds.length > 0) {
+            for (const tid of taskIds) {
+              await drizzleDb.delete(annotations).where(eq(annotations.taskId, tid));
+            }
+            await drizzleDb.delete(tasks).where(eq(tasks.projectId, input.id));
+          }
+          await drizzleDb.delete(projects).where(eq(projects.id, input.id));
+          return { success: true };
+        } catch (e: any) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e?.message ?? "فشل حذف المشروع" });
+        }
+      }),
+
+    // Get task stats for a project (per-status counts + paginated task list)
+    getDataset: adminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        limit: z.number().default(100),
+        offset: z.number().default(0),
+        statusFilter: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        // Count per status
+        const allTasks = await drizzleDb.select({
+          id: tasks.id,
+          content: tasks.content,
+          status: tasks.status,
+          assignedTo: tasks.assignedTo,
+          isGroundTruth: tasks.isGroundTruth,
+          createdAt: tasks.createdAt,
+        }).from(tasks).where(eq(tasks.projectId, input.projectId));
+
+        const statusCounts = {
+          total: allTasks.length,
+          pending: allTasks.filter(t => t.status === "pending").length,
+          in_progress: allTasks.filter(t => t.status === "in_progress").length,
+          submitted: allTasks.filter(t => t.status === "submitted").length,
+          approved: allTasks.filter(t => t.status === "approved").length,
+          rejected: allTasks.filter(t => t.status === "rejected").length,
+        };
+
+        // Filter and paginate
+        let filtered = allTasks;
+        if (input.statusFilter && input.statusFilter !== "all") {
+          filtered = allTasks.filter(t => t.status === input.statusFilter);
+        }
+        const paginated = filtered.slice(input.offset, input.offset + input.limit);
+
+        // Get assignee names for the page
+        const assigneeIds = [...new Set(paginated.map(t => t.assignedTo).filter(Boolean))] as number[];
+        const assigneeMap: Record<number, string> = {};
+        for (const uid of assigneeIds) {
+          const u = await db.getUserById(uid);
+          if (u) assigneeMap[uid] = u.name ?? String(uid);
+        }
+
+        return {
+          statusCounts,
+          tasks: paginated.map(t => ({
+            ...t,
+            assigneeName: t.assignedTo ? (assigneeMap[t.assignedTo] ?? String(t.assignedTo)) : null,
+          })),
+          total: filtered.length,
+        };
+      }),
+
+    // Add more tasks to an existing project
+    addTasks: adminProcedure
+      .input(z.object({
+        projectId: z.number(),
+        tasksText: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        const taskContents = input.tasksText.split("\n").map(s => s.trim()).filter(Boolean);
+        if (!taskContents.length) throw new TRPCError({ code: "BAD_REQUEST", message: "لا توجد مهام للإضافة" });
+
+        await drizzleDb.insert(tasks).values(
+          taskContents.map(content => ({ projectId: input.projectId, content }))
+        );
+        // Update totalItems count
+        await drizzleDb.update(projects)
+          .set({ totalItems: (await drizzleDb.select({ c: tasks.id }).from(tasks).where(eq(tasks.projectId, input.projectId))).length, updatedAt: new Date() })
+          .where(eq(projects.id, input.projectId));
+
+        return { added: taskContents.length };
+      }),
+
+    // Delete a single task
+    deleteTask: adminProcedure
+      .input(z.object({ taskId: z.number() }))
+      .mutation(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await drizzleDb.delete(annotations).where(eq(annotations.taskId, input.taskId));
+        await drizzleDb.delete(tasks).where(eq(tasks.id, input.taskId));
+        return { success: true };
+      }),
   }),
 
   // Task procedures
@@ -257,6 +403,56 @@ export const appRouter = router({
       }
       return await db.getTasksByAssignee(ctx.user.id);
     }),
+
+    // ── Queue-based: pull the next available task for the current user ──────────
+    // Best practice in annotation projects: taskers pull from a shared pool
+    // rather than waiting for manual admin assignment. This prevents hotspots,
+    // balances load automatically, and supports the minAnnotations > 1 workflow.
+    getNextTask: protectedProcedure
+      .input(z.object({ projectId: z.number().optional() }))
+      .mutation(async ({ ctx }) => {
+        if (ctx.user.role !== "tasker" && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        // Find a pending task not already annotated by this user,
+        // preferring tasks already in_progress (resumable) by this user.
+        const { sql: sqlFn, ne: neOp, notInArray } = await import("drizzle-orm");
+
+        // Step 1: get task IDs the user already submitted (non-draft)
+        const doneRows = await drizzleDb
+          .select({ taskId: annotations.taskId })
+          .from(annotations)
+          .where(and(eq(annotations.userId, ctx.user.id), eq(annotations.isDraft, false)));
+        const doneIds = doneRows.map(r => r.taskId);
+
+        // Step 2: find next pending/in_progress task not in doneIds
+        const candidateQuery = drizzleDb
+          .select({ id: tasks.id, projectId: tasks.projectId, content: tasks.content, status: tasks.status })
+          .from(tasks)
+          .where(
+            doneIds.length
+              ? and(
+                  sqlFn`${tasks.status} IN ('pending', 'in_progress')`,
+                  notInArray(tasks.id, doneIds)
+                )
+              : sqlFn`${tasks.status} IN ('pending', 'in_progress')`
+          )
+          .limit(1);
+
+        const [nextTask] = await candidateQuery;
+        if (!nextTask) return null;
+
+        // Step 3: assign to user and mark in_progress
+        await drizzleDb
+          .update(tasks)
+          .set({ assignedTo: ctx.user.id, status: "in_progress", updatedAt: new Date() })
+          .where(eq(tasks.id, nextTask.id));
+
+        return nextTask;
+      }),
 
     getStats: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "tasker" && ctx.user.role !== "admin") {
@@ -315,7 +511,9 @@ export const appRouter = router({
       .input(z.object({
         name: z.string().min(1),
         description: z.string().optional(),
-        tasksText: z.string(),
+        // Accept either raw text (one per line) OR a pre-parsed array from file upload
+        tasksText: z.string().optional(),
+        taskContents: z.array(z.string()).optional(),
         annotationType: z.string().optional(),
         labelsConfig: z.unknown().optional(),
         instructions: z.string().optional(),
@@ -325,10 +523,10 @@ export const appRouter = router({
         spamDetection: z.boolean().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        const taskContents = input.tasksText
-          .split("\n")
-          .map(s => s.trim())
-          .filter(Boolean);
+        // taskContents from file upload takes priority; fall back to line-split text
+        const taskContents = input.taskContents?.length
+          ? input.taskContents
+          : (input.tasksText ?? "").split("\n").map(s => s.trim()).filter(Boolean);
 
         if (taskContents.length === 0) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "لا توجد مهام للاستيراد" });
@@ -419,6 +617,7 @@ export const appRouter = router({
 
   // ── Export ──────────────────────────────────────────────────────────────────
   export: router({
+    // Raw annotation rows — client converts to any format (CSV / JSON / JSONL / XLSX)
     projectAnnotations: protectedProcedure
       .input(z.object({ projectId: z.number() }))
       .query(async ({ input }) => {
@@ -430,14 +629,34 @@ export const appRouter = router({
             content: tasks.content,
             annotationResult: annotations.result,
             annotatorName: users.name,
+            annotatorId: users.id,
             status: annotations.status,
+            qaStatus: qaReviews.status,
+            qaFeedback: qaReviews.feedback,
+            timeSpentSeconds: annotations.timeSpentSeconds,
+            confidence: annotations.confidence,
+            isDraft: annotations.isDraft,
             createdAt: annotations.createdAt,
+            updatedAt: annotations.updatedAt,
           })
           .from(annotations)
           .innerJoin(tasks, eq(annotations.taskId, tasks.id))
           .innerJoin(users, eq(annotations.userId, users.id))
-          .where(eq(tasks.projectId, input.projectId));
+          .leftJoin(qaReviews, eq(qaReviews.annotationId, annotations.id))
+          .where(and(eq(tasks.projectId, input.projectId), eq(annotations.isDraft, false)));
         return rows;
+      }),
+
+    // Export the raw task dataset (no annotations required) — useful for re-import
+    projectDataset: adminProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return [];
+        return drizzleDb
+          .select({ id: tasks.id, content: tasks.content, status: tasks.status, isGroundTruth: tasks.isGroundTruth, groundTruthResult: tasks.groundTruthResult, createdAt: tasks.createdAt })
+          .from(tasks)
+          .where(eq(tasks.projectId, input.projectId));
       }),
   }),
 
