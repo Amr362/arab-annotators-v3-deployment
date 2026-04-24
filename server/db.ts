@@ -804,7 +804,7 @@ export async function createProjectWithTasks(opts: {
   const [inserted] = await db.insert(projects).values({
     name: opts.name,
     description: opts.description ?? null,
-    labelStudioProjectId: opts.labelStudioProjectId,
+    labelStudioProjectId: opts.labelStudioProjectId || null,
     totalItems: opts.taskContents.length,
     createdBy: opts.createdBy,
   }).returning();

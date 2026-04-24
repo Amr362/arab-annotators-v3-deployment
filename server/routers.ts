@@ -411,7 +411,7 @@ export const appRouter = router({
       .input(z.object({
         name: z.string().min(1),
         description: z.string().optional(),
-        labelStudioProjectId: z.number().default(0),
+        labelStudioProjectId: z.number().optional(),
         tasksText: z.string(),
         annotationType: z.string().optional(),
         labelsConfig: z.unknown().optional(),

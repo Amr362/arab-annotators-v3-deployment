@@ -80,7 +80,7 @@ export default function AdminDashboard() {
   const [bulkForm, setBulkForm] = useState({ count: 5, role: "tasker" as "tasker" | "qa", prefix: "" });
   const [editForm, setEditForm] = useState({ name: "", email: "", role: "user" as Role, isActive: true });
   const [newPassword, setNewPassword] = useState("");
-  const [projectForm, setProjectForm] = useState({ name: "", description: "", labelStudioProjectId: 0, tasksText: "" });
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", labelStudioProjectId: undefined as number | undefined, tasksText: "" });
 
   if (user?.role !== "admin") {
     return <ArabAnnotatorsDashboardLayout><div className="text-center py-12 text-red-600 font-semibold">ليس لديك صلاحية الوصول</div></ArabAnnotatorsDashboardLayout>;
@@ -692,6 +692,7 @@ export default function AdminDashboard() {
 
                 await createProject.mutateAsync({
                   ...projectForm,
+                  labelStudioProjectId: projectForm.labelStudioProjectId || undefined,
                   annotationType: (projectForm as any).annotationType ?? "classification",
                   labelsConfig: { labels },
                   instructions: (projectForm as any).instructions,

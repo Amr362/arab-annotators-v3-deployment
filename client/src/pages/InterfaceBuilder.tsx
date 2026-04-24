@@ -198,7 +198,7 @@ export default function InterfaceBuilder() {
     createProject.mutate({
       name: publishForm.name.trim(),
       description: publishForm.description.trim(),
-      labelStudioProjectId: 0,
+      // labelStudioProjectId: 0, // Removed to avoid unique constraint issues
       tasksText: publishForm.tasks,
       annotationType: "html_interface",
       instructions: activeProject.html,

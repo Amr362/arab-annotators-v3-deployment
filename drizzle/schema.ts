@@ -31,7 +31,7 @@ export const projects = pgTable("projects", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
   description: text("description"),
-  labelStudioProjectId: integer("labelStudioProjectId").notNull().unique(),
+  labelStudioProjectId: integer("labelStudioProjectId"),
   totalItems: integer("totalItems").default(0).notNull(),
   completedItems: integer("completedItems").default(0).notNull(),
   reviewedItems: integer("reviewedItems").default(0).notNull(),
