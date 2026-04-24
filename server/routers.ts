@@ -630,29 +630,32 @@ export const appRouter = router({
         const labels: string[] = config?.labels?.map((l: any) => l.value) ?? [];
         if (!labels.length) return null;
 
-        // Call Claude API for pre-annotation
+        // Call Gemini API for pre-annotation
         try {
-          const response = await fetch("https://api.anthropic.com/v1/messages", {
+          const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
-              "anthropic-version": "2023-06-01",
             },
             body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 50,
-              messages: [{
-                role: "user",
-                content: `صنّف النص التالي في أحد الأصناف: ${labels.join(", ")}\nالنص: "${task.content}"\nأجب بالصنف فقط بدون أي شرح.`,
+              contents: [{
+                parts: [{
+                  text: `صنّف النص التالي في أحد الأصناف: ${labels.join(", ")}\nالنص: "${task.content}"\nأجب بالصنف فقط بدون أي شرح.`
+                }]
               }],
+              generationConfig: {
+                maxOutputTokens: 50,
+                temperature: 0.1,
+              }
             }),
           });
           const data = await response.json() as any;
-          const suggestion = data?.content?.[0]?.text?.trim();
+          const suggestion = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
           const matched = labels.find(l => suggestion?.includes(l));
           if (matched) return { labels: [matched], type: config?.type ?? "classification" };
-        } catch {
+        } catch (e) {
+          console.error("[AI] Pre-annotation error:", e);
           return null;
         }
         return null;
@@ -726,33 +729,36 @@ export const appRouter = router({
         const annLabel = annResult?.labels?.[0] ?? annResult?.choice ?? JSON.stringify(annResult);
 
         try {
-          const response = await fetch("https://api.anthropic.com/v1/messages", {
+          const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
-              "anthropic-version": "2023-06-01",
             },
             body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 200,
-              messages: [{
-                role: "user",
-                content: `أنت مراجع جودة لمشروع توسيم نصوص عربية.
+              contents: [{
+                parts: [{
+                  text: `أنت مراجع جودة لمشروع توسيم نصوص عربية.
 النص: "${task.content}"
 التصنيفات المتاحة: ${labels.join("، ")}
 تصنيف المُوسِّم: "${annLabel}"
 
 هل التصنيف صحيح؟ أجب بـ JSON فقط بهذا الشكل:
-{"verdict": "approve" | "reject" | "uncertain", "confidence": 0-100, "reason": "سبب قصير"}`,
+{"verdict": "approve" | "reject" | "uncertain", "confidence": 0-100, "reason": "سبب قصير"}`
+                }]
               }],
+              generationConfig: {
+                maxOutputTokens: 200,
+                temperature: 0.1,
+                responseMimeType: "application/json",
+              }
             }),
           });
           const data = await response.json() as any;
-          const text = data?.content?.[0]?.text?.trim() ?? "";
-          const clean = text.replace(/```json|```/g, "").trim();
-          return JSON.parse(clean);
-        } catch {
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+          return JSON.parse(text);
+        } catch (e) {
+          console.error("[AI] QA Review error:", e);
           return null;
         }
       }),
@@ -784,33 +790,36 @@ export const appRouter = router({
         const labels: string[] = config?.labels?.map((l: any) => l.value) ?? [];
 
         try {
-          const response = await fetch("https://api.anthropic.com/v1/messages", {
+          const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
-              "anthropic-version": "2023-06-01",
             },
             body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 150,
-              messages: [{
-                role: "user",
-                content: `هل التصنيف التالي يبدو عشوائياً أو غير جاد؟
+              contents: [{
+                parts: [{
+                  text: `هل التصنيف التالي يبدو عشوائياً أو غير جاد؟
 النص: "${task.content}"
 التصنيف المختار: "${annLabel}"
 التصنيفات المتاحة: ${labels.join("، ")}
 
 أجب بـ JSON فقط:
-{"isSpam": true | false, "confidence": 0-100, "reason": "سبب قصير"}`,
+{"isSpam": true | false, "confidence": 0-100, "reason": "سبب قصير"}`
+                }]
               }],
+              generationConfig: {
+                maxOutputTokens: 150,
+                temperature: 0.1,
+                responseMimeType: "application/json",
+              }
             }),
           });
           const data = await response.json() as any;
-          const text = data?.content?.[0]?.text?.trim() ?? "";
-          const clean = text.replace(/```json|```/g, "").trim();
-          return JSON.parse(clean);
-        } catch {
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+          return JSON.parse(text);
+        } catch (e) {
+          console.error("[AI] Spam check error:", e);
           return null;
         }
       }),
