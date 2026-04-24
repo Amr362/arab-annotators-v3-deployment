@@ -80,7 +80,7 @@ export default function AdminDashboard() {
   const [bulkForm, setBulkForm] = useState({ count: 5, role: "tasker" as "tasker" | "qa", prefix: "" });
   const [editForm, setEditForm] = useState({ name: "", email: "", role: "user" as Role, isActive: true });
   const [newPassword, setNewPassword] = useState("");
-  const [projectForm, setProjectForm] = useState({ name: "", description: "", labelStudioProjectId: undefined as number | undefined, tasksText: "" });
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", tasksText: "" });
 
   if (user?.role !== "admin") {
     return <ArabAnnotatorsDashboardLayout><div className="text-center py-12 text-red-600 font-semibold">ليس لديك صلاحية الوصول</div></ArabAnnotatorsDashboardLayout>;
@@ -188,80 +188,32 @@ export default function AdminDashboard() {
             ))}
           </div>
 
-          {/* Charts row */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Daily trend */}
             <Card>
-              <CardHeader><CardTitle className="text-sm font-semibold">التوسيمات (آخر 7 أيام)</CardTitle></CardHeader>
-              <CardContent>
-                {adminStats?.dailyTrend && adminStats.dailyTrend.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={adminStats.dailyTrend} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                      <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(v) => [`${v} توسيم`, ""]} />
-                      <Bar dataKey="total" fill="#00D4A8" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : <p className="text-gray-400 text-center py-8 text-sm">لا توجد بيانات بعد</p>}
+              <CardHeader><CardTitle className="text-lg">📈 حالة التوسيمات</CardTitle></CardHeader>
+              <CardContent className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={annotationStatus} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                      {annotationStatus.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
               </CardContent>
             </Card>
-
-            {/* Annotation status pie */}
             <Card>
-              <CardHeader><CardTitle className="text-sm font-semibold">حالة التوسيمات</CardTitle></CardHeader>
-              <CardContent>
-                {annotationStatus.some(d => d.value > 0) ? (
-                  <ResponsiveContainer width="100%" height={180}>
-                    <PieChart>
-                      <Pie data={annotationStatus} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                        {annotationStatus.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : <p className="text-gray-400 text-center py-8 text-sm">لا توجد توسيمات بعد</p>}
-              </CardContent>
-            </Card>
-
-            {/* Role distribution */}
-            <Card>
-              <CardHeader><CardTitle className="text-sm font-semibold">توزيع الأدوار</CardTitle></CardHeader>
-              <CardContent>
-                {roleDistribution.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={180}>
-                    <PieChart>
-                      <Pie data={roleDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70}>
-                        {roleDistribution.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-                      </Pie>
-                      <Legend />
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : <p className="text-gray-400 text-center py-8 text-sm">لا توجد مستخدمون</p>}
-              </CardContent>
-            </Card>
-
-            {/* Projects progress */}
-            <Card>
-              <CardHeader><CardTitle className="text-sm font-semibold">تقدم المشاريع</CardTitle></CardHeader>
-              <CardContent>
-                {allProjects?.length ? (
-                  <div className="space-y-3">
-                    {allProjects.slice(0, 5).map(p => (
-                      <div key={p.id}>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-gray-700 truncate max-w-[60%]">{p.name}</span>
-                          <span className="text-gray-500">{Math.round((p.completedItems / (p.totalItems || 1)) * 100)}%</span>
-                        </div>
-                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-[#00D4A8] to-[#38BDF8] rounded-full transition-all"
-                            style={{ width: `${Math.round((p.completedItems / (p.totalItems || 1)) * 100)}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="text-gray-400 text-center py-8 text-sm">لا توجد مشاريع</p>}
+              <CardHeader><CardTitle className="text-lg">👥 توزيع الأدوار</CardTitle></CardHeader>
+              <CardContent className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={roleDistribution}>
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#38BDF8" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </CardContent>
             </Card>
           </div>
@@ -270,213 +222,190 @@ export default function AdminDashboard() {
 
       {/* ── Users ── */}
       {tab === "users" && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Input placeholder="🔍 بحث بالاسم أو البريد..." value={search} onChange={e => setSearch(e.target.value)} className="w-64" />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-xl">إدارة المستخدمين</CardTitle>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setShowBulkDialog(true)}><Plus size={15} className="ml-1" />إنشاء جماعي</Button>
-              <Button size="sm" onClick={() => setShowCreateDialog(true)}><Plus size={15} className="ml-1" />مستخدم جديد</Button>
+              <Button onClick={() => setShowBulkDialog(true)} variant="outline" size="sm" className="hidden sm:flex"><Plus size={16} className="ml-1" /> إنشاء دفعة</Button>
+              <Button onClick={() => setShowCreateDialog(true)} size="sm"><Plus size={16} className="ml-1" /> مستخدم جديد</Button>
             </div>
-          </div>
-          <Card>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4"><Input placeholder="بحث بالاسم أو البريد..." value={search} onChange={e => setSearch(e.target.value)} /></div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b">
-                  <tr>{["الاسم", "البريد", "الدور", "الحالة", "إجراءات"].map(h => <th key={h} className="px-4 py-3 text-right font-medium text-gray-600">{h}</th>)}</tr>
+              <table className="w-full text-sm text-right">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr><th className="px-4 py-3 font-medium">الاسم</th><th className="px-4 py-3 font-medium">البريد</th><th className="px-4 py-3 font-medium">الدور</th><th className="px-4 py-3 font-medium">الحالة</th><th className="px-4 py-3 font-medium">الإجراءات</th></tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredUsers.map(u => (
-                    <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-medium">{u.name || "—"}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{u.email || "—"}</td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${roleBadgeColor[u.role as Role] || "bg-gray-100 text-gray-600"}`}>
-                          {roleLabel[u.role as Role] || u.role}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {u.isActive ? <span className="flex items-center gap-1 text-green-600 text-xs"><UserCheck size={13} />نشط</span>
-                          : <span className="flex items-center gap-1 text-red-500 text-xs"><UserX size={13} />موقوف</span>}
-                      </td>
+                    <tr key={u.id} className="hover:bg-gray-50/50">
+                      <td className="px-4 py-3 font-medium">{u.name}</td>
+                      <td className="px-4 py-3 text-gray-500">{u.email}</td>
+                      <td className="px-4 py-3"><Badge className={roleBadgeColor[u.role as Role]}>{roleLabel[u.role as Role]}</Badge></td>
+                      <td className="px-4 py-3">{u.isActive ? <span className="text-green-600 flex items-center gap-1"><UserCheck size={14} /> نشط</span> : <span className="text-red-400 flex items-center gap-1"><UserX size={14} /> موقوف</span>}</td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
-                          <button onClick={() => openEdit(u)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded" title="تعديل"><Pencil size={14} /></button>
-                          <button onClick={() => setShowResetPwDialog({ id: u.id, name: u.name || "" })} className="p-1.5 text-amber-500 hover:bg-amber-50 rounded" title="إعادة تعيين كلمة المرور"><Key size={14} /></button>
-                          <button onClick={() => setShowDeleteConfirm(u.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded" title="حذف"><Trash2 size={14} /></button>
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(u)} title="تعديل"><Pencil size={16} /></Button>
+                          <Button variant="ghost" size="icon" onClick={() => setShowResetPwDialog({ id: u.id, name: u.name || "" })} title="تغيير كلمة المرور"><Key size={16} className="text-amber-500" /></Button>
+                          <Button variant="ghost" size="icon" onClick={() => setShowDeleteConfirm(u.id)} title="حذف" className="text-red-400 hover:text-red-600 hover:bg-red-50"><Trash2 size={16} /></Button>
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {filteredUsers.length === 0 && <p className="text-center text-gray-400 py-8 text-sm">لا توجد نتائج</p>}
             </div>
-          </Card>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* ── Projects ── */}
       {tab === "projects" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold">المشاريع ({allProjects?.length ?? 0})</h2>
-            <Button size="sm" onClick={() => setShowProjectDialog(true)}><FolderPlus size={15} className="ml-1" />مشروع جديد</Button>
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold">المشاريع القائمة</h2>
+            <Button onClick={() => setShowProjectDialog(true)} className="bg-emerald-500 hover:bg-emerald-600 text-white"><FolderPlus size={18} className="ml-2" /> مشروع جديد</Button>
           </div>
-          {allProjects?.map(p => (
-            <Card key={p.id} className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-bold truncate">{p.name}</h3>
-                  {p.description && <p className="text-sm text-gray-500 mt-0.5 truncate">{p.description}</p>}
-                  <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                    <span>مكتمل: {p.completedItems}/{p.totalItems}</span>
-                    <span>مراجَع: {p.reviewedItems}</span>
-                    <span className={p.status === "active" ? "text-green-600 font-medium" : "text-gray-400"}>
-                      {p.status === "active" ? "نشط" : p.status === "paused" ? "موقوف" : "مكتمل"}
-                    </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {allProjects?.map(p => (
+              <Card key={p.id} className="hover:border-emerald-200 transition-colors">
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between items-start">
+                    <CardTitle className="text-lg font-bold">{p.name}</CardTitle>
+                    <Badge variant={p.status === "active" ? "default" : "secondary"}>{p.status === "active" ? "نشط" : "مكتمل"}</Badge>
                   </div>
-                </div>
-                <div className="text-right min-w-[90px] mr-4">
-                  <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-[#00D4A8] to-[#38BDF8]"
-                      style={{ width: `${Math.round((p.completedItems / (p.totalItems || 1)) * 100)}%` }} />
+                  <p className="text-sm text-gray-500 line-clamp-2 mt-1">{p.description || "لا يوجد وصف"}</p>
+                </CardHeader>
+                <CardContent className="pt-2">
+                  <div className="flex justify-between text-xs text-gray-400 mb-2">
+                    <span>التقدم: {Math.round((p.completedItems / (p.totalItems || 1)) * 100)}%</span>
+                    <span>{p.completedItems} / {p.totalItems}</span>
                   </div>
-                  <span className="text-xs text-gray-400">{Math.round((p.completedItems / (p.totalItems || 1)) * 100)}%</span>
-                </div>
-              </div>
-            </Card>
-          ))}
-          {!allProjects?.length && <p className="text-center text-gray-400 py-10">لا توجد مشاريع — ابدأ بإنشاء مشروع جديد</p>}
+                  <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                    <div className="bg-emerald-500 h-full" style={{ width: `${(p.completedItems / (p.totalItems || 1)) * 100}%` }} />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* ── Assign Tasks ── */}
+      {/* ── Assign ── */}
       {tab === "assign" && (
-        <div className="space-y-4 max-w-xl">
-          <h2 className="text-lg font-bold">🎯 تعيين المهام للمصنفين</h2>
-          <Card className="p-5 space-y-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">المشروع</label>
-              <Select onValueChange={v => setAssignProjectId(Number(v))}>
-                <SelectTrigger><SelectValue placeholder="اختر مشروعاً" /></SelectTrigger>
-                <SelectContent>{allProjects?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}</SelectContent>
-              </Select>
+        <Card>
+          <CardHeader><CardTitle className="text-xl">تعيين المهام للموسِّمين</CardTitle></CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="text-sm font-medium">1. اختر المشروع</label>
+                <Select onValueChange={v => setAssignProjectId(Number(v))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="اختر مشروعاً..." /></SelectTrigger>
+                  <SelectContent>{allProjects?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">2. اختر الموسِّم</label>
+                <Select onValueChange={v => setAssignUserId(Number(v))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="اختر موسِّماً..." /></SelectTrigger>
+                  <SelectContent>{taskers.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">3. عدد المهام</label>
+                <Input type="number" value={assignCount} onChange={e => setAssignCount(Number(e.target.value))} className="mt-1" />
+              </div>
             </div>
             {assignProjectId && (
-              <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
-                المهام غير المعيّنة: <strong>{unassignedTasks?.length ?? "..."}</strong>
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-3 text-slate-600">
+                  <ClipboardList size={20} className="text-primary" />
+                  <span className="text-sm">المهام المتاحة للتعيين في هذا المشروع: <strong>{unassignedTasks?.length ?? 0}</strong> مهمة</span>
+                </div>
+                <Button onClick={handleAssignTasks} disabled={assignTasks.isPending || !unassignedTasks?.length} className="bg-primary hover:bg-primary/90">
+                  {assignTasks.isPending ? "جارٍ التعيين..." : "تعيين المهام الآن"}
+                </Button>
               </div>
             )}
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">المصنِّف</label>
-              <Select onValueChange={v => setAssignUserId(Number(v))}>
-                <SelectTrigger><SelectValue placeholder="اختر مصنِّفاً" /></SelectTrigger>
-                <SelectContent>{taskers.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">عدد المهام للتعيين</label>
-              <Input type="number" min={1} max={500} value={assignCount} onChange={e => setAssignCount(Number(e.target.value))} />
-            </div>
-            <Button onClick={handleAssignTasks} disabled={assignTasks.isPending || !assignProjectId || !assignUserId} className="w-full">
-              {assignTasks.isPending ? "جارٍ التعيين..." : `تعيين ${assignCount} مهمة`}
-            </Button>
-          </Card>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* ── Leaderboard ── */}
       {tab === "leaderboard" && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-bold">🏆 المتصدرون</h2>
-          <Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-xl flex items-center gap-2"><Trophy className="text-amber-500" /> المتصدرون</CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    {["#", "الاسم", "الدور", "مُسلَّمة", "مقبولة", "الدقة"].map(h => (
-                      <th key={h} className="px-4 py-3 text-right font-medium text-gray-600">{h}</th>
-                    ))}
-                  </tr>
+              <table className="w-full text-sm text-right">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr><th className="px-4 py-3 font-medium">الترتيب</th><th className="px-4 py-3 font-medium">الموسِّم</th><th className="px-4 py-3 font-medium">إجمالي المنجز</th><th className="px-4 py-3 font-medium">مقبولة</th><th className="px-4 py-3 font-medium">الدقة</th></tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {leaderboard?.map((entry, i) => (
-                    <tr key={entry.userId} className={`hover:bg-gray-50 transition-colors ${i < 3 ? "font-semibold" : ""}`}>
-                      <td className="px-4 py-3">
-                        {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : <span className="text-gray-400">#{i + 1}</span>}
-                      </td>
-                      <td className="px-4 py-3">{entry.name}</td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-0.5 rounded-full text-xs ${roleBadgeColor[entry.role as Role] || "bg-gray-100 text-gray-600"}`}>
-                          {roleLabel[entry.role as Role] || entry.role}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">{entry.totalSubmitted}</td>
-                      <td className="px-4 py-3 text-green-600 font-medium">{entry.approvedCount}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden w-16">
-                            <div className={`h-full rounded-full ${entry.accuracy >= 80 ? "bg-green-500" : entry.accuracy >= 60 ? "bg-amber-400" : "bg-red-400"}`}
-                              style={{ width: `${entry.accuracy}%` }} />
-                          </div>
-                          <span className="text-xs text-gray-600 w-10">{entry.accuracy}%</span>
-                        </div>
-                      </td>
+                  {leaderboard?.map((u, i) => (
+                    <tr key={u.userId} className={i < 3 ? "bg-amber-50/30" : ""}>
+                      <td className="px-4 py-3 font-bold text-gray-400">#{i + 1}</td>
+                      <td className="px-4 py-3 font-medium">{u.name}</td>
+                      <td className="px-4 py-3">{u.totalSubmitted}</td>
+                      <td className="px-4 py-3 text-emerald-600 font-semibold">{u.approvedCount}</td>
+                      <td className="px-4 py-3"><Badge variant="outline" className="border-emerald-200 text-emerald-700">{u.accuracy}%</Badge></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {!leaderboard?.length && <p className="text-center text-gray-400 py-10 text-sm">لا توجد بيانات بعد — ابدأ التوسيم أولاً</p>}
             </div>
-          </Card>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* ── Export ── */}
       {tab === "export" && (
-        <div className="space-y-4 max-w-lg">
-          <h2 className="text-lg font-bold">📤 تصدير البيانات</h2>
-          <Card className="p-6 space-y-4">
-            <p className="text-sm text-gray-500">اختر مشروعاً لتصدير كل توسيماته بصيغة JSON أو CSV:</p>
-            <Select onValueChange={v => setExportProjectId(Number(v))}>
-              <SelectTrigger><SelectValue placeholder="اختر مشروعاً" /></SelectTrigger>
-              <SelectContent>{allProjects?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <div className="flex gap-3">
-              <Button variant="outline" disabled={!exportData} onClick={() => exportData && downloadJSON(exportData, `project_${exportProjectId}.json`)} className="flex-1">
-                <Download size={15} className="ml-1" />JSON
-              </Button>
-              <Button disabled={!exportData} onClick={() => exportData && downloadCSV(exportData, `project_${exportProjectId}.csv`)} className="flex-1">
-                <Download size={15} className="ml-1" />CSV
-              </Button>
-            </div>
-            {exportData && <p className="text-xs text-green-600">✅ {exportData.length} توسيم جاهز للتصدير</p>}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="md:col-span-1">
+            <CardHeader><CardTitle className="text-lg">تصدير البيانات</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">اختر المشروع</label>
+                <Select onValueChange={v => setExportProjectId(Number(v))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="اختر مشروعاً..." /></SelectTrigger>
+                  <SelectContent>{allProjects?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2 pt-2">
+                <Button disabled={!exportProjectId || !exportData?.length} onClick={() => downloadCSV(exportData || [], `export_project_${exportProjectId}.csv`)} variant="outline"><Download size={16} className="ml-2" /> تصدير CSV</Button>
+                <Button disabled={!exportProjectId || !exportData?.length} onClick={() => downloadJSON(exportData || [], `export_project_${exportProjectId}.json`)} variant="outline"><Download size={16} className="ml-2" /> تصدير JSON</Button>
+              </div>
+            </CardContent>
           </Card>
-
-          {/* Export users CSV */}
-          <Card className="p-6 space-y-3">
-            <h3 className="font-medium text-gray-800">تصدير قائمة المستخدمين</h3>
-            <p className="text-sm text-gray-500">تصدير جميع المستخدمين مع بياناتهم (بدون كلمات المرور)</p>
-            <Button variant="outline" onClick={() => {
-              const data = allUsers?.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, isActive: u.isActive, createdAt: u.createdAt })) ?? [];
-              downloadCSV(data, "users.csv");
-            }} className="w-full">
-              <Download size={15} className="ml-1" />تصدير المستخدمين CSV
-            </Button>
+          <Card className="md:col-span-2">
+            <CardHeader><CardTitle className="text-lg">معاينة البيانات (آخر 50)</CardTitle></CardHeader>
+            <CardContent>
+              {!exportProjectId ? <div className="h-40 flex items-center justify-center text-gray-400 italic">اختر مشروعاً للمعاينة</div> : (
+                <div className="max-h-80 overflow-y-auto text-xs">
+                  <table className="w-full text-right border-collapse">
+                    <thead className="bg-gray-50 sticky top-0"><tr><th className="p-2 border">المهمة</th><th className="p-2 border">التوسيم</th><th className="p-2 border">الموسِّم</th></tr></thead>
+                    <tbody className="divide-y">{exportData?.slice(0, 50).map((d, i) => <tr key={i}><td className="p-2 border max-w-[200px] truncate">{d.content}</td><td className="p-2 border">{JSON.stringify(d.annotationResult)}</td><td className="p-2 border">{d.annotatorName}</td></tr>)}</tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
           </Card>
         </div>
       )}
 
-      {/* ══ Dialogs ══════════════════════════════════════════════════════════════ */}
+      {/* ── Dialogs ── */}
 
       {/* Create User */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>إنشاء مستخدم جديد</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
-            <div><label className="text-sm font-medium">الاسم</label><Input value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} className="mt-1" /></div>
-            <div><label className="text-sm font-medium">البريد</label><Input type="email" value={createForm.email} onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))} className="mt-1" /></div>
-            <div><label className="text-sm font-medium">كلمة المرور</label><Input type="password" value={createForm.password} onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))} placeholder="6 أحرف على الأقل" className="mt-1" /></div>
+            <div><label className="text-sm font-medium">الاسم الكامل</label><Input value={createForm.name} onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))} placeholder="أحمد علي" className="mt-1" /></div>
+            <div><label className="text-sm font-medium">البريد الإلكتروني</label><Input type="email" value={createForm.email} onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))} placeholder="ahmed@example.com" className="mt-1" /></div>
+            <div><label className="text-sm font-medium">كلمة المرور</label><Input type="password" value={createForm.password} onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))} className="mt-1" /></div>
             <div><label className="text-sm font-medium">الدور</label>
               <Select value={createForm.role} onValueChange={v => setCreateForm(f => ({ ...f, role: v as Role }))}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
@@ -492,13 +421,14 @@ export default function AdminDashboard() {
       </Dialog>
 
       {/* Bulk Create */}
-      <Dialog open={showBulkDialog} onOpenChange={o => { setShowBulkDialog(o); if (!o) setBulkResult(null); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>إنشاء جماعي</DialogTitle></DialogHeader>
+      <Dialog open={showBulkDialog} onOpenChange={setShowBulkDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>إنشاء دفعة مستخدمين</DialogTitle></DialogHeader>
           {!bulkResult ? (
             <>
-              <div className="space-y-3 py-2">
-                <div><label className="text-sm font-medium">الدور</label>
+              <div className="space-y-4 py-2">
+                <div>
+                  <label className="text-sm font-medium">الدور</label>
                   <Select value={bulkForm.role} onValueChange={v => setBulkForm(f => ({ ...f, role: v as "tasker" | "qa" }))}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent><SelectItem value="tasker">موسِّم</SelectItem><SelectItem value="qa">مراجع جودة</SelectItem></SelectContent>
@@ -692,7 +622,6 @@ export default function AdminDashboard() {
 
                 await createProject.mutateAsync({
                   ...projectForm,
-                  labelStudioProjectId: projectForm.labelStudioProjectId || undefined,
                   annotationType: (projectForm as any).annotationType ?? "classification",
                   labelsConfig: { labels },
                   instructions: (projectForm as any).instructions,

@@ -15,7 +15,7 @@ export const users = pgTable("users", {
   passwordHash: text("passwordHash"),
   role: roleEnum("role").default("user").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
-  labelStudioUserId: integer("labelStudioUserId"),
+  labelStudioUserId: integer("labelStudioUserId"), // Kept as optional for legacy
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -31,7 +31,7 @@ export const projects = pgTable("projects", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
   description: text("description"),
-  labelStudioProjectId: integer("labelStudioProjectId"),
+  labelStudioProjectId: integer("labelStudioProjectId"), // Now fully optional
   totalItems: integer("totalItems").default(0).notNull(),
   completedItems: integer("completedItems").default(0).notNull(),
   reviewedItems: integer("reviewedItems").default(0).notNull(),
@@ -59,7 +59,7 @@ export const taskStatusEnum = pgEnum("task_status", ["pending", "in_progress", "
 export const tasks = pgTable("tasks", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   projectId: integer("projectId").notNull(),
-  labelStudioTaskId: integer("labelStudioTaskId").notNull(),
+  labelStudioTaskId: integer("labelStudioTaskId"), // Made optional to support internal task management
   content: text("content").notNull(),
   status: taskStatusEnum("status").default("pending").notNull(),
   assignedTo: integer("assignedTo"),
@@ -79,7 +79,7 @@ export const annotations = pgTable("annotations", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   taskId: integer("taskId").notNull(),
   userId: integer("userId").notNull(),
-  labelStudioAnnotationId: integer("labelStudioAnnotationId"),
+  labelStudioAnnotationId: integer("labelStudioAnnotationId"), // Optional
   result: jsonb("result"),
   confidence: decimal("confidence", { precision: 5, scale: 2 }),
   status: annotationStatusEnum("status").default("pending_review").notNull(),

@@ -1,6 +1,5 @@
 import { eq, and, sql, desc, count, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { sql } from "drizzle-orm";
 import pg from "pg";
 import { InsertUser, users, projects, tasks, annotations, qaReviews, statistics, notifications, llmSuggestions } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -300,169 +299,27 @@ export async function rejectAnnotation(annotationId: number, reviewerId: number,
   }
 }
 
-// Tasker: submit an annotation for a task
-export async function submitTaskAnnotation(taskId: number, userId: number, result: unknown) {
+// ─── Statistics: Kappa & IAA ─────────────────────────────────────────────────
+
+export async function computeCohenKappa(projectId: number, user1Id: number, user2Id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) return { kappa: 0, agreement: 0, taskCount: 0 };
 
-  // Create annotation record
-  await db.insert(annotations).values({
-    taskId,
-    userId,
-    result: result as any,
-    status: "pending_review",
-  });
-
-  // Mark task as submitted
-  await db.update(tasks).set({ status: "submitted", updatedAt: new Date() }).where(eq(tasks.id, taskId));
-
-  // Update project completedItems counter
-  const task = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
-  if (task.length > 0) {
-    await db.execute(sql`
-      UPDATE projects SET "completedItems" = "completedItems" + 1, "updatedAt" = NOW()
-      WHERE id = ${task[0].projectId}
-    `);
-    // Send progress notifications at milestones
-    await checkProgressMilestones(task[0].projectId);
-  }
-
-  return { success: true };
-}
-
-// Check project progress and insert milestone notifications
-async function checkProgressMilestones(projectId: number) {
-  const db = await getDb();
-  if (!db) return;
-
-  const proj = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
-  if (!proj.length || proj[0].totalItems === 0) return;
-
-  const pct = Math.floor((proj[0].completedItems / proj[0].totalItems) * 100);
-  const milestones = [25, 50, 75, 100];
-
-  for (const milestone of milestones) {
-    if (pct >= milestone) {
-      // Check if we already sent this milestone notification
-      const existing = await db
-        .select()
-        .from(notifications)
-        .where(
-          and(
-            eq(notifications.projectId, projectId),
-            eq(notifications.type, "progress"),
-            sql`content LIKE ${`%${milestone}%%`}`
-          )
-        )
-        .limit(1);
-
-      if (existing.length === 0) {
-        // Notify all admins
-        const admins = await db.select().from(users).where(eq(users.role, "admin"));
-        for (const admin of admins) {
-          await db.insert(notifications).values({
-            userId: admin.id,
-            projectId,
-            title: `تقدم المشروع: ${proj[0].name}`,
-            content: `اكتمل ${milestone}% من مهام المشروع "${proj[0].name}"`,
-            type: "progress",
-          });
-        }
-      }
-    }
-  }
-}
-
-// Mark notification as read
-export async function markNotificationRead(notificationId: number, userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db
-    .update(notifications)
-    .set({ isRead: true })
-    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
-  return { success: true };
-}
-
-// Mark all notifications as read for a user
-export async function markAllNotificationsRead(userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId));
-  return { success: true };
-}
-
-// Export: get all annotations with task content for a project
-export async function exportProjectAnnotations(projectId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  const rows = await db
-    .select({
-      annotationId: annotations.id,
-      taskId: tasks.id,
-      taskContent: tasks.content,
-      labelStudioTaskId: tasks.labelStudioTaskId,
-      annotatorId: annotations.userId,
-      result: annotations.result,
-      confidence: annotations.confidence,
-      annotationStatus: annotations.status,
-      createdAt: annotations.createdAt,
-    })
-    .from(annotations)
-    .innerJoin(tasks, eq(annotations.taskId, tasks.id))
-    .where(eq(tasks.projectId, projectId));
-  return rows;
-}
-
-// Get unread notification count for a user
-export async function getUnreadNotificationCount(userId: number) {
-  const db = await getDb();
-  if (!db) return 0;
-  const result = await db
-    .select({ c: count() })
-    .from(notifications)
-    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
-  return Number(result[0]?.c ?? 0);
-}
-
-// ─── IAA: Inter-Annotator Agreement ─────────────────────────────────────────
-// Cohen's Kappa for two annotators on the same tasks
-
-export async function computeCohenKappa(projectId: number): Promise<{
-  kappa: number;
-  agreement: number;
-  taskCount: number;
-  interpretation: string;
-}> {
-  const db = await getDb();
-  if (!db) return { kappa: 0, agreement: 0, taskCount: 0, interpretation: "لا توجد بيانات" };
-
-  // Get tasks for the project that have >= 2 annotations
-  const projectTasks = await db
-    .select({ id: tasks.id })
-    .from(tasks)
-    .where(eq(tasks.projectId, projectId));
-
+  const projectTasks = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, projectId));
   const taskIds = projectTasks.map(t => t.id);
-  if (taskIds.length === 0) return { kappa: 0, agreement: 0, taskCount: 0, interpretation: "لا توجد مهام" };
+  if (!taskIds.length) return { kappa: 0, agreement: 0, taskCount: 0 };
 
-  // Get all annotations for these tasks
-  const allAnnotations = await db
-    .select({ taskId: annotations.taskId, userId: annotations.userId, result: annotations.result })
-    .from(annotations)
-    .where(inArray(annotations.taskId, taskIds));
+  const [ann1, ann2] = await Promise.all([
+    db.select({ taskId: annotations.taskId, result: annotations.result }).from(annotations).where(and(inArray(annotations.taskId, taskIds), eq(annotations.userId, user1Id))),
+    db.select({ taskId: annotations.taskId, result: annotations.result }).from(annotations).where(and(inArray(annotations.taskId, taskIds), eq(annotations.userId, user2Id))),
+  ]);
 
-  // Group by taskId, keep tasks with exactly 2 annotators
-  const taskMap: Record<number, typeof allAnnotations> = {};
-  for (const ann of allAnnotations) {
-    if (!taskMap[ann.taskId]) taskMap[ann.taskId] = [];
-    taskMap[ann.taskId].push(ann);
-  }
+  const map1 = Object.fromEntries(ann1.map(a => [a.taskId, a.result]));
+  const map2 = Object.fromEntries(ann2.map(a => [a.taskId, a.result]));
 
-  const dualAnnotatedTasks = Object.values(taskMap).filter(anns => anns.length >= 2);
-  if (dualAnnotatedTasks.length === 0) return { kappa: 0, agreement: 0, taskCount: 0, interpretation: "لا توجد مهام مزدوجة" };
+  const commonTaskIds = taskIds.filter(id => map1[id] !== undefined && map2[id] !== undefined);
+  if (!commonTaskIds.length) return { kappa: 0, agreement: 0, taskCount: 0 };
 
-  // Extract label from result JSON (try common fields: label, choice, value)
   function extractLabel(result: unknown): string {
     if (!result) return "";
     if (typeof result === "string") return result;
@@ -470,34 +327,30 @@ export async function computeCohenKappa(projectId: number): Promise<{
     return String(r.label ?? r.choice ?? r.value ?? r.annotation ?? JSON.stringify(r));
   }
 
-  let agreements = 0;
+  let observedAgreement = 0;
   const labelCounts1: Record<string, number> = {};
   const labelCounts2: Record<string, number> = {};
+  const n = commonTaskIds.length;
 
-  for (const anns of dualAnnotatedTasks) {
-    const l1 = extractLabel(anns[0].result);
-    const l2 = extractLabel(anns[1].result);
-    if (l1 === l2) agreements++;
+  for (const id of commonTaskIds) {
+    const l1 = extractLabel(map1[id]);
+    const l2 = extractLabel(map2[id]);
+    if (l1 === l2) observedAgreement++;
     labelCounts1[l1] = (labelCounts1[l1] || 0) + 1;
     labelCounts2[l2] = (labelCounts2[l2] || 0) + 1;
   }
 
-  const n = dualAnnotatedTasks.length;
-  const observedAgreement = agreements / n;
+  observedAgreement /= n;
 
-  // Expected agreement by chance
-  const allLabels = new Set([...Object.keys(labelCounts1), ...Object.keys(labelCounts2)]);
   let expectedAgreement = 0;
-  for (const label of allLabels) {
-    const p1 = (labelCounts1[label] || 0) / n;
-    const p2 = (labelCounts2[label] || 0) / n;
+  const allLabels = [...new Set([...Object.keys(labelCounts1), ...Object.keys(labelCounts2)])];
+  for (const l of allLabels) {
+    const p1 = (labelCounts1[l] || 0) / n;
+    const p2 = (labelCounts2[l] || 0) / n;
     expectedAgreement += p1 * p2;
   }
 
-  const kappa = expectedAgreement === 1
-    ? 1
-    : (observedAgreement - expectedAgreement) / (1 - expectedAgreement);
-
+  const kappa = expectedAgreement === 1 ? 1 : (observedAgreement - expectedAgreement) / (1 - expectedAgreement);
   const kappaRounded = Math.round(kappa * 100) / 100;
 
   let interpretation = "";
@@ -794,7 +647,7 @@ export async function assignTasksToUser(taskIds: number[], userId: number) {
 export async function createProjectWithTasks(opts: {
   name: string;
   description?: string;
-  labelStudioProjectId: number;
+  labelStudioProjectId?: number;
   createdBy: number;
   taskContents: string[];
 }) {
@@ -804,7 +657,7 @@ export async function createProjectWithTasks(opts: {
   const [inserted] = await db.insert(projects).values({
     name: opts.name,
     description: opts.description ?? null,
-    labelStudioProjectId: opts.labelStudioProjectId || null,
+    labelStudioProjectId: opts.labelStudioProjectId ?? null,
     totalItems: opts.taskContents.length,
     createdBy: opts.createdBy,
   }).returning();
@@ -814,7 +667,7 @@ export async function createProjectWithTasks(opts: {
   if (opts.taskContents.length > 0) {
     const taskRows = opts.taskContents.map((content, i) => ({
       projectId,
-      labelStudioTaskId: i + 1,
+      labelStudioTaskId: null, // No longer strictly needed for internal projects
       content,
       status: "pending" as const,
     }));
@@ -847,11 +700,9 @@ export async function resetUserPassword(userId: number, newPassword: string) {
 
 // ─── Tasker: Log annotation time ─────────────────────────────────────────────
 export async function logAnnotationTime(taskId: number, userId: number, seconds: number) {
-  // Store in llm_suggestions table repurposed as event log (or we simply update statistics)
-  // For now just update the annotation with a duration hint via result field — lightweight
   const db = await getDb();
   if (!db) return;
-  // We'll just return — the client tracks the time locally and sends it with the result
+  // For now just return
 }
 
 // ─── Auth: find user by username OR email ────────────────────────────────────

@@ -180,7 +180,6 @@ export const appRouter = router({
         z.object({
           name: z.string(),
           description: z.string().optional(),
-          labelStudioProjectId: z.number(),
           totalItems: z.number().default(0),
         })
       )
@@ -194,7 +193,6 @@ export const appRouter = router({
             .values({
               name: input.name,
               description: input.description,
-              labelStudioProjectId: input.labelStudioProjectId,
               totalItems: input.totalItems,
               createdBy: ctx.user.id,
             })
@@ -293,100 +291,6 @@ export const appRouter = router({
     }),
   }),
 
-  // QA procedures
-  qa: router({
-    getQueue: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-      return await db.getQAQueue(ctx.user.id);
-    }),
-
-    getStats: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-      return await db.getQAStats(ctx.user.id);
-    }),
-
-    // Approve an annotation
-    approve: protectedProcedure
-      .input(z.object({ annotationId: z.number(), feedback: z.string().optional() }))
-      .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-        try {
-          await db.approveAnnotation(input.annotationId, ctx.user.id, input.feedback);
-          return { success: true };
-        } catch (error) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل في قبول التوسيم" });
-        }
-      }),
-
-    // Reject an annotation
-    reject: protectedProcedure
-      .input(z.object({ annotationId: z.number(), feedback: z.string().optional() }))
-      .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-        try {
-          await db.rejectAnnotation(input.annotationId, ctx.user.id, input.feedback);
-          return { success: true };
-        } catch (error) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل في رفض التوسيم" });
-        }
-      }),
-  }),
-
-  // Export (admin only)
-  export: router({
-    projectAnnotations: adminProcedure
-      .input(z.object({ projectId: z.number() }))
-      .query(async ({ input }) => {
-        return await db.exportProjectAnnotations(input.projectId);
-      }),
-  }),
-
-  // IAA — Inter-Annotator Agreement (admin + qa)
-  iaa: router({
-    cohenKappa: protectedProcedure
-      .input(z.object({ projectId: z.number() }))
-      .query(async ({ ctx, input }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "qa") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-        return await db.computeCohenKappa(input.projectId);
-      }),
-
-    fleissKappa: protectedProcedure
-      .input(z.object({ projectId: z.number() }))
-      .query(async ({ ctx, input }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "qa") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-        return await db.computeFleissKappa(input.projectId);
-      }),
-  }),
-
-  // ── Leaderboard ──────────────────────────────────────────────────────────────
-  leaderboard: router({
-    get: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin" && ctx.user.role !== "qa") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-      return await db.getLeaderboard();
-    }),
-  }),
-
-  // ── Admin: Enhanced stats + project management + task assignment ─────────────
-  adminStats: router({
-    get: adminProcedure.query(async () => {
-      return await db.getAdminStats();
-    }),
-  }),
-
   taskManagement: router({
     // Assign tasks to a user
     assignTasks: adminProcedure
@@ -411,7 +315,6 @@ export const appRouter = router({
       .input(z.object({
         name: z.string().min(1),
         description: z.string().optional(),
-        labelStudioProjectId: z.number().optional(),
         tasksText: z.string(),
         annotationType: z.string().optional(),
         labelsConfig: z.unknown().optional(),
@@ -435,7 +338,6 @@ export const appRouter = router({
           const result = await db.createProjectWithTasks({
             name: input.name,
             description: input.description,
-            labelStudioProjectId: input.labelStudioProjectId,
             createdBy: ctx.user.id,
             taskContents,
           });
@@ -499,6 +401,44 @@ export const appRouter = router({
       if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       return drizzleDb.select().from(taskSkips).where(eq(taskSkips.userId, ctx.user.id));
     }),
+  }),
+
+  // ── Admin stats ─────────────────────────────────────────────────────────────
+  adminStats: router({
+    get: adminProcedure.query(async () => {
+      return await db.getAdminStats();
+    }),
+  }),
+
+  // ── Leaderboard ─────────────────────────────────────────────────────────────
+  leaderboard: router({
+    get: adminProcedure.query(async () => {
+      return await db.getLeaderboard();
+    }),
+  }),
+
+  // ── Export ──────────────────────────────────────────────────────────────────
+  export: router({
+    projectAnnotations: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return [];
+        const rows = await drizzleDb
+          .select({
+            taskId: tasks.id,
+            content: tasks.content,
+            annotationResult: annotations.result,
+            annotatorName: users.name,
+            status: annotations.status,
+            createdAt: annotations.createdAt,
+          })
+          .from(annotations)
+          .innerJoin(tasks, eq(annotations.taskId, tasks.id))
+          .innerJoin(users, eq(annotations.userId, users.id))
+          .where(eq(tasks.projectId, input.projectId));
+        return rows;
+      }),
   }),
 
   // ── Draft (auto-save) ────────────────────────────────────────────────────────
