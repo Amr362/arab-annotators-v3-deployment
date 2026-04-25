@@ -42,7 +42,10 @@ export default function CreateProjectPage() {
   const createProject = trpc.projects.create.useMutation({
     onSuccess: () => {
       toast.success("✅ تم إنشاء المشروع بنجاح");
-      window.location.href = "/admin/projects";
+      // Redirect to the projects management page
+      setTimeout(() => {
+        window.location.href = "/admin/projects";
+      }, 1000);
     },
     onError: (e) => toast.error(e.message),
   });
