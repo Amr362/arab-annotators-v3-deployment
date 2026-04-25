@@ -1109,36 +1109,7 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Project Dialog - REMOVED */}
-      {false && <Dialog open={false} onOpenChange={() => {}}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>✏️ تعديل المشروع</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-2">
-            <div><label className="text-sm font-medium">اسم المشروع</label><Input value={editProjectForm.name} onChange={e => setEditProjectForm(f => ({ ...f, name: e.target.value }))} className="mt-1" /></div>
-            <div><label className="text-sm font-medium">الوصف</label><Input value={editProjectForm.description} onChange={e => setEditProjectForm(f => ({ ...f, description: e.target.value }))} className="mt-1" /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditProjectDialog(false)}>إلغاء</Button>
-            <Button onClick={() => editingProject && updateProjectMutation.mutate({ id: editingProject.id, ...editProjectForm })} disabled={updateProjectMutation.isPending || !editProjectForm.name}>
-              {updateProjectMutation.isPending ? "جارٍ..." : "حفظ"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Project Dialog - REMOVED */}
-      {false && <Dialog open={false} onOpenChange={() => {}}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2 text-red-600"><AlertTriangle size={18} /> حذف المشروع</DialogTitle></DialogHeader>
-          <p className="text-sm text-gray-600 py-2">سيتم حذف المشروع وجميع مهامه وتوسيماته نهائياً. لا يمكن التراجع.</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteProjectId(null)}>إلغاء</Button>
-            <Button variant="destructive" onClick={() => deleteProjectId && deleteProjectMutation.mutate({ id: deleteProjectId })} disabled={deleteProjectMutation.isPending}>
-              {deleteProjectMutation.isPending ? "جارٍ الحذف..." : "حذف نهائياً"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Edit and Delete Project Dialogs moved to ProjectsPage.tsx */}
 
       {/* Delete User */}
       <Dialog open={showDeleteConfirm !== null} onOpenChange={() => setShowDeleteConfirm(null)}>
