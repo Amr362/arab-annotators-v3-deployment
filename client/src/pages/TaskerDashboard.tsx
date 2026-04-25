@@ -164,13 +164,18 @@ function AchievementBadge({ achievement, unlocked }: { achievement: typeof ACHIE
   );
 }
 
-function ProjectCard({ project, myTaskCount }: { project: any; myTaskCount?: number }) {
+function ProjectCard({ project, myTaskCount, onStartWork, isStarting }: {
+  project: any;
+  myTaskCount?: number;
+  onStartWork?: (projectId: number) => void;
+  isStarting?: boolean;
+}) {
   const pct = project.totalItems > 0 ? (project.completedItems / project.totalItems) * 100 : 0;
   const sc = projectStatusColor[project.status] ?? projectStatusColor.active;
   const tc = annotationTypeLabel[project.annotationType ?? "classification"];
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all group p-5">
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all group p-5 flex flex-col">
       {/* header */}
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -207,7 +212,7 @@ function ProjectCard({ project, myTaskCount }: { project: any; myTaskCount?: num
       </div>
 
       {/* progress */}
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 mb-4">
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-slate-400">التقدم الكلي</span>
           <span className="text-[11px] font-bold text-slate-700 tabular-nums">{Math.round(pct)}%</span>
@@ -226,6 +231,24 @@ function ProjectCard({ project, myTaskCount }: { project: any; myTaskCount?: num
           <span>{project.totalItems?.toLocaleString("ar") ?? 0} إجمالي</span>
         </div>
       </div>
+
+      {/* Action Button */}
+      {project.status === "active" && onStartWork && (
+        <button
+          onClick={() => onStartWork(project.id)}
+          disabled={isStarting}
+          className="mt-auto w-full py-2 rounded-xl bg-slate-50 hover:bg-[#00D4A8] hover:text-white text-slate-600 text-xs font-bold transition-all flex items-center justify-center gap-2 border border-slate-100 hover:border-[#00D4A8]"
+        >
+          {isStarting ? (
+            <RefreshCw size={14} className="animate-spin" />
+          ) : (
+            <>
+              <Zap size={14} />
+              ابدأ العمل
+            </>
+          )}
+        </button>
+      )}
     </div>
   );
 }
@@ -955,7 +978,13 @@ export default function TaskerDashboard() {
                     {(allProjects ?? [])
                       .filter((p: any) => myProjectMap[p.id])
                       .map((p: any) => (
-                        <ProjectCard key={p.id} project={p} myTaskCount={myProjectMap[p.id]} />
+                        <ProjectCard
+                          key={p.id}
+                          project={p}
+                          myTaskCount={myProjectMap[p.id]}
+                          onStartWork={(pid) => getNextTask.mutate({ projectId: pid })}
+                          isStarting={getNextTask.isPending}
+                        />
                       ))}
                   </div>
                 </div>
@@ -981,7 +1010,12 @@ export default function TaskerDashboard() {
                     {(allProjects ?? [])
                       .filter((p: any) => p.status === "active")
                       .map((p: any) => (
-                        <ProjectCard key={p.id} project={p} />
+                        <ProjectCard
+                        key={p.id}
+                        project={p}
+                        onStartWork={(pid) => getNextTask.mutate({ projectId: pid })}
+                        isStarting={getNextTask.isPending}
+                      />
                       ))}
                   </div>
                 )}
@@ -998,7 +1032,12 @@ export default function TaskerDashboard() {
                     {(allProjects ?? [])
                       .filter((p: any) => p.status === "completed")
                       .map((p: any) => (
-                        <ProjectCard key={p.id} project={p} />
+                        <ProjectCard
+                        key={p.id}
+                        project={p}
+                        onStartWork={(pid) => getNextTask.mutate({ projectId: pid })}
+                        isStarting={getNextTask.isPending}
+                      />
                       ))}
                   </div>
                 </div>
