@@ -741,3 +741,64 @@ export async function bootstrapAdmin(opts: { name: string; email: string; passwo
   });
   console.log(`[Bootstrap] Admin account created: ${opts.email}`);
 }
+
+// ─── Tasker: Submit annotation ───────────────────────────────────────────────
+export async function submitTaskAnnotation(taskId: number, userId: number, result: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // 1. Check if there's an existing draft for this user and task
+  const existingDraft = await db
+    .select({ id: annotations.id })
+    .from(annotations)
+    .where(and(
+      eq(annotations.taskId, taskId),
+      eq(annotations.userId, userId),
+      eq(annotations.isDraft, true)
+    ))
+    .limit(1);
+
+  const timeSpentSeconds = result.timeSpentSeconds || 0;
+
+  if (existingDraft.length > 0) {
+    // Update existing draft to be a final submission
+    await db.update(annotations)
+      .set({
+        result: result,
+        isDraft: false,
+        status: "pending_review",
+        timeSpentSeconds: timeSpentSeconds,
+        updatedAt: new Date()
+      })
+      .where(eq(annotations.id, existingDraft[0].id));
+  } else {
+    // Insert new final annotation
+    await db.insert(annotations).values({
+      taskId,
+      userId,
+      result,
+      isDraft: false,
+      status: "pending_review",
+      timeSpentSeconds: timeSpentSeconds,
+    });
+  }
+
+  // 2. Update task status to submitted
+  await db.update(tasks)
+    .set({
+      status: "submitted",
+      updatedAt: new Date()
+    })
+    .where(eq(tasks.id, taskId));
+
+  // 3. Increment project completedItems counter
+  const task = await db.select({ projectId: tasks.projectId }).from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  if (task.length > 0) {
+    await db.execute(sql`
+      UPDATE projects SET "completedItems" = "completedItems" + 1, "updatedAt" = NOW()
+      WHERE id = ${task[0].projectId}
+    `);
+  }
+
+  return { success: true };
+}
