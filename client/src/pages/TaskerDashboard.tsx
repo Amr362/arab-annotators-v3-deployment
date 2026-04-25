@@ -258,7 +258,7 @@ function ProjectCard({ project, myTaskCount, onStartWork, isStarting }: {
 export default function TaskerDashboard() {
   const { user } = useAuth();
 
-  const [panel, setPanel] = useState<Panel>("annotate");
+  const [panel, setPanel] = useState<Panel>("projects");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -288,9 +288,12 @@ export default function TaskerDashboard() {
   // Queue-based task pull: tasker requests the next available task from the pool
   const getNextTask = trpc.tasker.getNextTask.useMutation({
     onSuccess: (task) => {
-      if (!task) { toast("🕊️ لا توجد مهام متاحة حالياً"); return; }
+      if (!task) { toast("🗕️ لا توجد مهام متاحة حالياً"); return; }
       toast.success("✅ تم تخصيص مهمة جديدة");
       refetch(); refetchStats();
+      // Switch to annotation panel immediately after getting task
+      setPanel("annotate");
+      setCurrentIdx(0);
     },
     onError: e => toast.error(e.message),
   });
@@ -461,9 +464,8 @@ export default function TaskerDashboard() {
 
   /* ── nav items ── */
   const NAV_ITEMS: { id: Panel; label: string; icon: any; badge?: number | null }[] = [
-    { id: "annotate",  label: "التوسيم",      icon: Brain,        badge: pendingTasks.length || null },
-    { id: "tasks",     label: "المهام",        icon: LayoutList,   badge: null },
     { id: "projects",  label: "المشاريع",      icon: FolderOpen,   badge: (allProjects?.filter((p: any) => p.status === "active").length) || null },
+    { id: "annotate",  label: "التوسيم",      icon: Brain,        badge: pendingTasks.length || null },
     { id: "feedback",  label: "الملاحظات",    icon: MessageSquare, badge: rejectedCount || null },
     { id: "profile",   label: "ملفي الشخصي",  icon: User,         badge: null },
   ];
@@ -876,9 +878,9 @@ export default function TaskerDashboard() {
           )}
 
           {/* ═══════════════════════════════
-              TASKS PANEL
+              TASKS PANEL - HIDDEN (moved to Projects)
           ═══════════════════════════════ */}
-          {panel === "tasks" && (
+          {false && panel === "tasks" && (
             <div className="flex-1 overflow-auto p-5 space-y-4">
               <div className="flex gap-3 flex-wrap items-center bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
                 <div className="relative flex-1 min-w-[200px]">
