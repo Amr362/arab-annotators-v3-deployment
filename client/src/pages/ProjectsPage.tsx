@@ -15,8 +15,6 @@ import {
   FileText, Layers, Clock, CheckCircle2, TrendingUp, Download, FileJson, Sheet,
 } from "lucide-react";
 import { useState, useMemo } from "react";
-import { useAuth } from "@/_core/hooks/useAuth";
-
 type ProjectStatus = "active" | "paused" | "completed";
 
 const statusConfig: Record<ProjectStatus, { label: string; color: string; bg: string; dot: string }> = {
