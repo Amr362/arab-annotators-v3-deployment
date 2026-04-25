@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { AlertCircle, CheckCircle2, XCircle, TrendingUp, MessageSquare, Keyboard, Bot, ShieldAlert } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { AlertCircle, CheckCircle2, XCircle, TrendingUp, MessageSquare, Keyboard, Bot, ShieldAlert, User, Folder, Activity } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
@@ -57,6 +57,13 @@ export default function QADashboard() {
   const [aiAssistVisible, setAiAssistVisible] = useState(true);
   const { data: qaQueue, isLoading, refetch } = trpc.qa.getQueue.useQuery();
   const { data: stats, refetch: refetchStats } = trpc.qa.getStats.useQuery();
+  const { data: allProjects } = trpc.projects.getAll.useQuery();
+
+  const projectCounts = useMemo(() => ({
+    active: allProjects?.filter(p => p.status === "active").length ?? 0,
+    paused: allProjects?.filter(p => p.status === "paused").length ?? 0,
+    completed: allProjects?.filter(p => p.status === "completed").length ?? 0,
+  }), [allProjects]);
 
   const approve = trpc.qa.approve.useMutation({
     onSuccess: () => { toast.success("✅ تم قبول التوسيم"); setPendingAction(null); setFeedbackText(""); setFocusedId(null); refetch(); refetchStats(); },
@@ -224,6 +231,23 @@ export default function QADashboard() {
           ))}
         </div>
 
+        {/* Projects Summary */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          {[
+            { label: "مشاريع نشطة", val: projectCounts.active, bg: "bg-emerald-50 border-emerald-200", text: "text-emerald-700", dot: "bg-emerald-500" },
+            { label: "موقوفة مؤقتاً", val: projectCounts.paused, bg: "bg-amber-50 border-amber-200", text: "text-amber-700", dot: "bg-amber-400" },
+            { label: "مكتملة", val: projectCounts.completed, bg: "bg-blue-50 border-blue-200", text: "text-blue-700", dot: "bg-blue-500" },
+          ].map((s, i) => (
+            <div key={i} className={`rounded-xl border p-4 flex items-center gap-3 ${s.bg}`}>
+              <span className={`w-3 h-3 rounded-full ${s.dot}`} />
+              <div>
+                <p className={`text-2xl font-bold ${s.text}`}>{s.val}</p>
+                <p className={`text-xs ${s.text} opacity-80`}>{s.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* Batch actions bar */}
         {batchMode && selectedIds.size > 0 && (
           <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between flex-wrap gap-3">
@@ -272,7 +296,20 @@ export default function QADashboard() {
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2 mb-2">
-                          <h3 className="font-semibold text-slate-900 text-sm">مهمة #{item.taskId}</h3>
+                          <div className="flex flex-col gap-1">
+                            <h3 className="font-semibold text-slate-900 text-sm flex items-center gap-2">
+                              مهمة #{item.taskId}
+                              {item.projectStatus === "active" && (
+                                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] h-5 px-1.5">
+                                  <Activity size={10} className="ml-1" /> نشط
+                                </Badge>
+                              )}
+                            </h3>
+                            <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                              <span className="flex items-center gap-1"><Folder size={12} /> {item.projectName}</span>
+                              <span className="flex items-center gap-1"><User size={12} /> {item.taskerName}</span>
+                            </div>
+                          </div>
                           <Badge variant={item.status === "approved" ? "default" : item.status === "rejected" ? "destructive" : "secondary"} className="flex-shrink-0 text-xs">
                             {item.status === "approved" ? "✅ مقبول" : item.status === "rejected" ? "❌ مرفوض" : "⏳ معلق"}
                           </Badge>

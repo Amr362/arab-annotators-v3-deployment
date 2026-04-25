@@ -204,20 +204,26 @@ export async function getTaskerStats(userId: number) {
 export async function getQAQueue(reviewerId: number) {
   const db = await getDb();
   if (!db) return [];
-  // Return pending annotations that need review, joined with task content
+  // Return pending annotations that need review, joined with task content, tasker name, and project info
   const rows = await db
     .select({
       id: annotations.id,
       taskId: annotations.taskId,
       userId: annotations.userId,
+      taskerName: users.name,
       result: annotations.result,
       confidence: annotations.confidence,
       status: annotations.status,
       createdAt: annotations.createdAt,
       taskContent: tasks.content,
+      projectId: tasks.projectId,
+      projectName: projects.name,
+      projectStatus: projects.status,
     })
     .from(annotations)
     .innerJoin(tasks, eq(annotations.taskId, tasks.id))
+    .innerJoin(users, eq(annotations.userId, users.id))
+    .innerJoin(projects, eq(tasks.projectId, projects.id))
     .where(eq(annotations.status, "pending_review"));
   return rows;
 }
