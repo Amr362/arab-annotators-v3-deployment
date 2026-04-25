@@ -298,7 +298,7 @@ export default function QADashboard() {
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <div className="flex flex-col gap-1">
                             <h3 className="font-semibold text-slate-900 text-sm flex items-center gap-2">
-                              مهمة #{item.taskId}
+                              مهمة #{item.taskId || "غير معروفة"}
                               {item.projectStatus === "active" && (
                                 <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] h-5 px-1.5">
                                   <Activity size={10} className="ml-1" /> نشط
@@ -314,9 +314,9 @@ export default function QADashboard() {
                             {item.status === "approved" ? "✅ مقبول" : item.status === "rejected" ? "❌ مرفوض" : "⏳ معلق"}
                           </Badge>
                         </div>
-                        {item.taskContent && (
-                          <p className="text-sm text-slate-600 bg-slate-50 p-2 rounded mb-2 line-clamp-3">{item.taskContent}</p>
-                        )}
+                        <p className="text-sm text-slate-600 bg-slate-50 p-2 rounded mb-2 line-clamp-3">
+                          {item.taskContent || "محتوى المهمة غير متوفر (قد تكون المهمة قد حذفت)"}
+                        </p>
                         {item.result && (
                           <div className="bg-slate-100 rounded p-2 text-xs font-mono text-slate-600 line-clamp-2">
                             {JSON.stringify(item.result).slice(0, 150)}

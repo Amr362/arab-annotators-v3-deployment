@@ -205,6 +205,7 @@ export async function getQAQueue(reviewerId: number) {
   const db = await getDb();
   if (!db) return [];
   // Return pending annotations that need review, joined with task content, tasker name, and project info
+  // Using LEFT JOIN for everything to ensure annotations show up even if project/user is missing/deleted
   const rows = await db
     .select({
       id: annotations.id,
@@ -221,7 +222,7 @@ export async function getQAQueue(reviewerId: number) {
       projectStatus: projects.status,
     })
     .from(annotations)
-    .innerJoin(tasks, eq(annotations.taskId, tasks.id))
+    .leftJoin(tasks, eq(annotations.taskId, tasks.id))
     .leftJoin(users, eq(annotations.userId, users.id))
     .leftJoin(projects, eq(tasks.projectId, projects.id))
     .where(eq(annotations.status, "pending_review"));
@@ -630,6 +631,8 @@ export async function getAdminStats() {
     totalTasks: Number(totalTasks[0]?.c ?? 0),
     pendingAnnotations: Number(pendingAnnotations[0]?.c ?? 0),
     submittedAnnotations: Number(pendingAnnotations[0]?.c ?? 0), // Alias for frontend compatibility
+    // Add a "totalSubmitted" that includes all non-draft annotations for better visibility
+    totalSubmitted: Number(pendingAnnotations[0]?.c ?? 0) + Number(approvedAnnotations[0]?.c ?? 0) + Number(rejectedAnnotations[0]?.c ?? 0),
     approvedAnnotations: Number(approvedAnnotations[0]?.c ?? 0),
     rejectedAnnotations: Number(rejectedAnnotations[0]?.c ?? 0),
     todayAnnotations: Number(todayAnnotations[0]?.c ?? 0),
