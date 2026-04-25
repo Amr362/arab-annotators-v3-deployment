@@ -63,15 +63,15 @@ export default function Admin() {
   const [exportProjectId, setExportProjectId] = useState<number | null>(null);
 
   // Queries
-  const { data: adminStats } = trpc.admin.getStats.useQuery();
-  const { data: users = [] } = trpc.admin.getUsers.useQuery();
+  const { data: adminStats } = trpc.adminStats.get.useQuery();
+  const { data: users = [] } = trpc.admin.getAllUsers.useQuery();
   const { data: allProjects } = trpc.projects.getAll.useQuery();
-  const { data: leaderboard } = trpc.admin.getLeaderboard.useQuery();
-  const { data: unassignedTasks } = trpc.admin.getUnassignedTasks.useQuery(
+  const { data: leaderboard } = trpc.leaderboard.get.useQuery();
+  const { data: unassignedTasks } = trpc.admin.getUnassigned.useQuery(
     { projectId: assignProjectId ?? 0 },
     { enabled: !!assignProjectId }
   );
-  const { data: exportData } = trpc.admin.getExportData.useQuery(
+  const { data: exportData } = trpc.export.projectAnnotations.useQuery(
     { projectId: exportProjectId ?? 0 },
     { enabled: !!exportProjectId }
   );
@@ -97,13 +97,13 @@ export default function Admin() {
     onError: (e) => toast.error(e.message),
   });
 
-  const resetPw = trpc.admin.resetPassword.useMutation({
+  const resetPw = trpc.passwordManagement.resetPassword.useMutation({
     onSuccess: () => { toast.success("تم تغيير كلمة المرور"); setShowResetPwDialog(null); setNewPassword(""); },
     onError: (e) => toast.error(e.message),
   });
 
   const assignTasks = trpc.admin.assignTasks.useMutation({
-    onSuccess: (r) => { toast.success(`تم تعيين ${r.count} مهمة`); queryClient.invalidateQueries(); },
+    onSuccess: (r) => { toast.success(`تم تعيين ${r.assigned} مهمة`); queryClient.invalidateQueries(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -118,7 +118,18 @@ export default function Admin() {
   };
   const handleAssignTasks = () => {
     if (!assignProjectId || !assignUserId) return;
-    assignTasks.mutate({ projectId: assignProjectId, userId: assignUserId, count: assignCount });
+    // The server expects taskIds: number[], userId: number
+    // unassignedTasks might be undefined or empty if not loaded yet
+    if (!unassignedTasks || unassignedTasks.length === 0) {
+      toast.error("لا توجد مهام غير معينة أو لم يتم تحميل البيانات بعد");
+      return;
+    }
+    const ids = unassignedTasks.slice(0, assignCount).map(t => t.id);
+    if (ids.length === 0) {
+      toast.error("لم يتم العثور على مهام لتعيينها");
+      return;
+    }
+    assignTasks.mutate({ taskIds: ids, userId: assignUserId });
   };
 
   const openEdit = (u: any) => {
