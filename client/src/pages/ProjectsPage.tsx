@@ -12,9 +12,10 @@ import { toast } from "sonner";
 import {
   Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Database, X,
   Play, Pause, CheckSquare, FolderPlus, AlertTriangle, RefreshCw,
-  FileText, Layers, Clock, CheckCircle2, TrendingUp,
+  FileText, Layers, Clock, CheckCircle2, TrendingUp, Download, FileJson, Sheet,
 } from "lucide-react";
 import { useState, useMemo } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 type ProjectStatus = "active" | "paused" | "completed";
 
@@ -36,6 +37,7 @@ export default function ProjectsPage() {
   const [editForm, setEditForm] = useState({ name: "", description: "" });
   const [deleteProjectId, setDeleteProjectId] = useState<number | null>(null);
   const [page, setPage] = useState(0);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Fetch all projects
   const { data: allProjects, isLoading, refetch: refetchProjects } = trpc.projects.getAll.useQuery();
@@ -110,6 +112,72 @@ export default function ProjectsPage() {
   const handleDeleteConfirm = () => {
     if (!deleteProjectId) return;
     deleteProject.mutate({ id: deleteProjectId });
+  };
+
+  const exportProjectData = async (format: "json" | "csv" | "xlsx" | "txt") => {
+    if (!selectedProject || !projectDetails) {
+      toast.error("لا توجد بيانات للتصدير");
+      return;
+    }
+
+    try {
+      const tasks = projectDetails.tasks || [];
+      let content: string;
+      let filename: string;
+      let mimeType: string;
+
+      if (format === "json") {
+        content = JSON.stringify({
+          project: {
+            id: selectedProject.id,
+            name: selectedProject.name,
+            description: selectedProject.description,
+            annotationType: selectedProject.annotationType,
+            status: selectedProject.status,
+            createdAt: selectedProject.createdAt,
+          },
+          tasks: tasks.map(t => ({ id: t.id, content: t.content, status: t.status })),
+        }, null, 2);
+        filename = `${selectedProject.name}_${new Date().toISOString().split("T")[0]}.json`;
+        mimeType = "application/json";
+      } else if (format === "csv") {
+        const rows = [
+          ["معرف", "المحتوى", "الحالة"],
+          ...tasks.map(t => [t.id, `"${t.content.replace(/"/g, '""')}"`, t.status]),
+        ];
+        content = rows.map(r => r.join(",")).join("\n");
+        filename = `${selectedProject.name}_${new Date().toISOString().split("T")[0]}.csv`;
+        mimeType = "text/csv;charset=utf-8";
+      } else if (format === "txt") {
+        content = tasks.map(t => t.content).join("\n");
+        filename = `${selectedProject.name}_${new Date().toISOString().split("T")[0]}.txt`;
+        mimeType = "text/plain;charset=utf-8";
+      } else {
+        // XLSX format - export as tab-separated for Excel
+        const rows = [
+          ["معرف", "المحتوى", "الحالة"],
+          ...tasks.map(t => [t.id, t.content, t.status]),
+        ];
+        content = rows.map(r => r.join("\t")).join("\n");
+        filename = `${selectedProject.name}_${new Date().toISOString().split("T")[0]}.xlsx`;
+        mimeType = "application/vnd.ms-excel;charset=utf-8";
+      }
+
+      const blob = new Blob([content], { type: mimeType });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast.success(`تم تصدير البيانات بصيغة ${format.toUpperCase()}`);
+      setShowExportMenu(false);
+    } catch (err: any) {
+      toast.error("خطأ في التصدير: " + err.message);
+    }
   };
 
   if (user?.role !== "admin") {
@@ -306,22 +374,62 @@ export default function ProjectsPage() {
               </div>
             </div>
 
-            <DialogFooter className="flex gap-2 justify-end">
+            <DialogFooter className="flex gap-2 justify-between">
               <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
                 إغلاق
               </Button>
-              <Button variant="outline" onClick={handleEdit}>
-                <Pencil size={14} className="ml-1" /> تعديل
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  setDeleteProjectId(selectedProject.id);
-                  setShowDetailsModal(false);
-                }}
-              >
-                <Trash2 size={14} className="ml-1" /> حذف
-              </Button>
+              <div className="flex gap-2">
+                <div className="relative">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    className="gap-1.5"
+                  >
+                    <Download size={14} /> تصدير
+                  </Button>
+                  {showExportMenu && (
+                    <div className="absolute bottom-full right-0 mb-2 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-max">
+                      <button
+                        onClick={() => exportProjectData("json")}
+                        className="w-full text-right px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm"
+                      >
+                        <FileJson size={14} /> JSON
+                      </button>
+                      <button
+                        onClick={() => exportProjectData("csv")}
+                        className="w-full text-right px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t"
+                      >
+                        <Sheet size={14} /> CSV
+                      </button>
+                      <button
+                        onClick={() => exportProjectData("xlsx")}
+                        className="w-full text-right px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t"
+                      >
+                        <Sheet size={14} /> XLSX
+                      </button>
+                      <button
+                        onClick={() => exportProjectData("txt")}
+                        className="w-full text-right px-4 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm border-t"
+                      >
+                        <FileText size={14} /> TXT
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <Button variant="outline" onClick={handleEdit}>
+                  <Pencil size={14} className="ml-1" /> تعديل
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    setDeleteProjectId(selectedProject.id);
+                    setShowDetailsModal(false);
+                  }}
+                >
+                  <Trash2 size={14} className="ml-1" /> حذف
+                </Button>
+              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>

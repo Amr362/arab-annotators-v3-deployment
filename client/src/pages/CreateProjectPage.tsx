@@ -10,8 +10,9 @@ import { trpc } from "@/lib/trpc";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
-import { Upload, Plus, X, AlertCircle, CheckCircle2, FileText } from "lucide-react";
+import { Upload, Plus, X, AlertCircle, CheckCircle2, FileText, FileJson, Sheet, File } from "lucide-react";
 import { useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 type UploadMode = "text" | "file";
 
