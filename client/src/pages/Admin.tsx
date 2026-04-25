@@ -47,7 +47,6 @@ const PAGE_SIZE = 50;
 const TABS = [
   { id: "overview",    label: "📊 نظرة عامة"   },
   { id: "users",       label: "👥 المستخدمون"  },
-  { id: "projects",    label: "📁 المشاريع"    },
   { id: "assign",      label: "🎯 تعيين المهام" },
   { id: "leaderboard", label: "🏆 المتصدرون"   },
   { id: "export",      label: "📤 تصدير"       },
@@ -380,18 +379,8 @@ export default function AdminDashboard() {
   const invalidateProjects = () => utils.projects.getAll.invalidate();
 
   // Project mutations
-  const createProject = trpc.taskManagement.createProjectWithTasks.useMutation({
-    onSuccess: () => { toast.success("✅ تم إنشاء المشروع"); invalidateProjects(); setShowProjectDialog(false); },
-    onError: (e) => toast.error(e.message),
-  });
-  const deleteProjectMutation = trpc.projects.delete.useMutation({
-    onSuccess: () => { toast.success("تم حذف المشروع"); invalidateProjects(); setDeleteProjectId(null); },
-    onError: (e) => toast.error(e.message),
-  });
-  const updateProjectMutation = trpc.projects.update.useMutation({
-    onSuccess: () => { toast.success("✅ تم التحديث"); invalidateProjects(); setShowEditProjectDialog(false); },
-    onError: (e) => toast.error(e.message),
-  });
+
+  // Project mutations removed - use ProjectsPage.tsx instead
 
   // Dialog state
   const [showCreateDialog,      setShowCreateDialog]      = useState(false);
@@ -399,10 +388,7 @@ export default function AdminDashboard() {
   const [showEditDialog,        setShowEditDialog]        = useState(false);
   const [showDeleteConfirm,     setShowDeleteConfirm]     = useState<number | null>(null);
   const [showResetPwDialog,     setShowResetPwDialog]     = useState<{ id: number; name: string } | null>(null);
-  const [showProjectDialog,     setShowProjectDialog]     = useState(false);
-  const [showEditProjectDialog, setShowEditProjectDialog] = useState(false);
-  const [editingProject,        setEditingProject]        = useState<any | null>(null);
-  const [deleteProjectId,       setDeleteProjectId]       = useState<number | null>(null);
+
   const [selectedUser,          setSelectedUser]          = useState<any>(null);
   const [bulkResult,            setBulkResult]            = useState<any[] | null>(null);
 
@@ -411,11 +397,8 @@ export default function AdminDashboard() {
   const [bulkForm,        setBulkForm]        = useState({ count: 5, role: "tasker" as "tasker" | "qa", prefix: "" });
   const [editForm,        setEditForm]        = useState({ name: "", email: "", role: "user" as Role, isActive: true });
   const [newPassword,     setNewPassword]     = useState("");
-  const [projectForm,     setProjectForm]     = useState<any>({ name: "", description: "", tasksText: "", taskContents: [] as string[], annotationType: "classification", labelsRaw: "", instructions: "", minAnnotations: 1, aiPreAnnotation: false, qaAiEnabled: false, spamDetection: false });
-  const [uploadMode, setUploadMode] = useState<"text" | "file">("text");
-  const [uploadFileName, setUploadFileName] = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [editProjectForm, setEditProjectForm] = useState({ name: "", description: "" });
+
+
 
   if (user?.role !== "admin") {
     return <ArabAnnotatorsDashboardLayout><div className="text-center py-12 text-red-600 font-semibold">ليس لديك صلاحية الوصول</div></ArabAnnotatorsDashboardLayout>;
@@ -497,92 +480,7 @@ export default function AdminDashboard() {
   }
 
   // ── File upload parsing ──────────────────────────────────────────────────────
-  async function parseUploadedFile(file: File): Promise<string[]> {
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    const text = await file.text();
 
-    if (ext === "txt") {
-      return text.split("\n").map(s => s.trim()).filter(Boolean);
-    }
-    if (ext === "jsonl") {
-      return text.split("\n").map(s => s.trim()).filter(Boolean).map(line => {
-        try { const o = JSON.parse(line); return typeof o === "string" ? o : (o.text ?? o.content ?? o.sentence ?? JSON.stringify(o)); }
-        catch { return line; }
-      });
-    }
-    if (ext === "json") {
-      const parsed = JSON.parse(text);
-      const arr = Array.isArray(parsed) ? parsed : parsed.data ?? parsed.tasks ?? parsed.items ?? [];
-      return arr.map((o: any) => typeof o === "string" ? o : (o.text ?? o.content ?? o.sentence ?? o.data ?? JSON.stringify(o)));
-    }
-    if (ext === "csv" || ext === "tsv") {
-      const sep = ext === "tsv" ? "\t" : ",";
-      const lines = text.split("\n").map(s => s.trim()).filter(Boolean);
-      if (!lines.length) return [];
-      // Detect if first line is a header; look for a text/content/sentence column
-      const headers = lines[0].split(sep).map(h => h.replace(/^"|"$/g, "").toLowerCase());
-      const textCol = ["text", "content", "sentence", "data", "نص", "جملة"].reduce((found, h) => found !== -1 ? found : headers.indexOf(h), -1);
-      if (textCol !== -1) {
-        return lines.slice(1).map(line => {
-          const cols = line.split(sep);
-          return (cols[textCol] ?? "").replace(/^"|"$/g, "").trim();
-        }).filter(Boolean);
-      }
-      // No known header — treat first column as content, skip header row if it looks like text
-      const firstIsHeader = isNaN(Number(lines[0].split(sep)[0]));
-      return lines.slice(firstIsHeader ? 1 : 0).map(line => line.split(sep)[0].replace(/^"|"$/g, "").trim()).filter(Boolean);
-    }
-    if (ext === "xlsx" || ext === "xls") {
-      try {
-        const { read, utils } = await import("https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs" as any);
-        const buf = await file.arrayBuffer();
-        const wb = read(buf, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows: any[] = utils.sheet_to_json(ws, { header: 1, defval: "" });
-        if (!rows.length) return [];
-        const headers = (rows[0] as string[]).map(h => String(h).toLowerCase());
-        const textCol = ["text", "content", "sentence", "data", "نص", "جملة"].reduce((f, h) => f !== -1 ? f : headers.indexOf(h), -1);
-        return rows.slice(1).map((r: any[]) => String(textCol !== -1 ? (r[textCol] ?? "") : (r[0] ?? "")).trim()).filter(Boolean);
-      } catch {
-        throw new Error("تعذّر قراءة ملف Excel. تأكد أن الملف سليم.");
-      }
-    }
-    throw new Error(`صيغة الملف غير مدعومة: .${ext}`);
-  }
-
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadError(null);
-    setUploadFileName(file.name);
-    try {
-      const contents = await parseUploadedFile(file);
-      if (!contents.length) { setUploadError("الملف فارغ أو لا يحتوي على بيانات قابلة للقراءة"); return; }
-      setProjectForm((f: any) => ({ ...f, taskContents: contents, tasksText: "" }));
-      toast.success(`✅ تم تحميل ${contents.length} عنصر من ${file.name}`);
-    } catch (err: any) {
-      setUploadError(err.message ?? "خطأ في قراءة الملف");
-      setUploadFileName(null);
-    }
-    e.target.value = "";
-  }
-  async function handleCreateProject() {
-    const labels = (projectForm.labelsRaw ?? "").split("\n").filter((s: string) => s.trim()).map((line: string) => {
-      const parts = line.split(",");
-      return { value: parts[0]?.trim() ?? "", color: parts[1]?.trim() ?? "#888", shortcut: parts[2]?.trim() };
-    }).filter((l: any) => l.value);
-    await createProject.mutateAsync({
-      ...projectForm,
-      labelsConfig: { labels },
-      // Send parsed array when file was uploaded; otherwise send text for server-side split
-      taskContents: projectForm.taskContents?.length ? projectForm.taskContents : undefined,
-    });
-    // Reset upload state after successful creation
-    setUploadFileName(null);
-    setUploadError(null);
-    setUploadMode("text");
-    setProjectForm((f: any) => ({ ...f, taskContents: [], tasksText: "" }));
-  }
 
   // Chart data
   const roleDistribution = [
@@ -736,50 +634,7 @@ export default function AdminDashboard() {
         </Card>
       )}
 
-      {/* ── PROJECTS ── */}
-      {tab === "projects" && (
-        <div className="space-y-5">
-          {/* Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-bold">المشاريع</h2>
-              <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-                {(["all", "active", "paused", "completed"] as const).map(s => (
-                  <button key={s} onClick={() => setProjectStatusFilter(s)}
-                    className={`text-xs px-3 py-1 rounded-md font-medium transition-all ${projectStatusFilter === s ? "bg-white shadow-sm text-gray-800" : "text-gray-500 hover:text-gray-700"}`}>
-                    {s === "all" ? `الكل (${allProjects?.length ?? 0})` : `${statusConfig[s].label} (${projectCounts[s]})`}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Input placeholder="بحث في المشاريع..." value={projectSearch} onChange={e => setProjectSearch(e.target.value)} className="w-44 h-9 text-sm" />
-              <Button onClick={() => setShowProjectDialog(true)} className="bg-emerald-500 hover:bg-emerald-600 text-white gap-1.5" size="sm">
-                <FolderPlus size={16} /> مشروع جديد
-              </Button>
-            </div>
-          </div>
 
-          {filteredProjects.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-48 text-gray-400 gap-3 border-2 border-dashed border-gray-200 rounded-xl">
-              <FileText size={36} className="opacity-30" />
-              <p className="text-sm">لا توجد مشاريع</p>
-              <Button size="sm" variant="outline" onClick={() => setShowProjectDialog(true)}>إنشاء أول مشروع</Button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredProjects.map(p => (
-                <ProjectCard key={p.id} project={p}
-                  onViewDataset={() => setDatasetProject(p)}
-                  onEdit={() => { setEditingProject(p); setEditProjectForm({ name: p.name, description: p.description ?? "" }); setShowEditProjectDialog(true); }}
-                  onDelete={() => setDeleteProjectId(p.id)}
-                  onRefetch={invalidateProjects}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ── ASSIGN ── */}
       {tab === "assign" && (
@@ -1086,7 +941,8 @@ export default function AdminDashboard() {
       </Dialog>
 
       {/* Create Project */}
-      <Dialog open={showProjectDialog} onOpenChange={setShowProjectDialog}>
+      {/* Create Project Dialog - REMOVED - Use /admin/projects/create instead */}
+      {false && <Dialog open={false} onOpenChange={() => {}}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>📁 إنشاء مشروع جديد</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
@@ -1253,8 +1109,8 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Project */}
-      <Dialog open={showEditProjectDialog} onOpenChange={setShowEditProjectDialog}>
+      {/* Edit Project Dialog - REMOVED */}
+      {false && <Dialog open={false} onOpenChange={() => {}}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>✏️ تعديل المشروع</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
@@ -1270,8 +1126,8 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Project */}
-      <Dialog open={deleteProjectId !== null} onOpenChange={() => setDeleteProjectId(null)}>
+      {/* Delete Project Dialog - REMOVED */}
+      {false && <Dialog open={false} onOpenChange={() => {}}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle className="flex items-center gap-2 text-red-600"><AlertTriangle size={18} /> حذف المشروع</DialogTitle></DialogHeader>
           <p className="text-sm text-gray-600 py-2">سيتم حذف المشروع وجميع مهامه وتوسيماته نهائياً. لا يمكن التراجع.</p>

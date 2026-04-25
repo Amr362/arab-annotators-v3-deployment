@@ -397,6 +397,16 @@ export const appRouter = router({
 
   // Tasker procedures
   tasker: router({
+    // Get all active projects for tasker to see available work
+    getAvailableProjects: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "tasker" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      // Return only active projects
+      const allProjects = await db.getAllProjects();
+      return allProjects.filter(p => p.status === "active");
+    }),
+
     getTasks: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "tasker" && ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN" });

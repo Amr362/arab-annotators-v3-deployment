@@ -282,7 +282,8 @@ export default function TaskerDashboard() {
   const { data: tasks, isLoading, refetch } = trpc.tasker.getTasks.useQuery();
   const { data: stats, refetch: refetchStats } = trpc.tasker.getStats.useQuery();
   const { data: feedback } = trpc.tasker.getFeedback.useQuery();
-  const { data: allProjects } = trpc.projects.getAll.useQuery();
+  // Get all active projects that tasker can work on
+  const { data: allProjects } = trpc.tasker.getAvailableProjects.useQuery();
 
   // Queue-based task pull: tasker requests the next available task from the pool
   const getNextTask = trpc.tasker.getNextTask.useMutation({
