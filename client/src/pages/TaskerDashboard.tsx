@@ -458,18 +458,16 @@ export default function TaskerDashboard() {
     if (a.field === "totalCompleted") return (s.totalCompleted ?? 0) >= a.threshold;
     if (a.field === "completedToday") return (s.completedToday ?? 0) >= a.threshold;
     if (a.field === "accuracy") return (s.accuracy ?? 0) >= a.threshold;
-    if (a.field === "streak") return streak >= a.threshold;
+    if (a.field === "streak") return (s.streak ?? 0) >= a.threshold;
     return false;
   };
 
-  /* ── nav items ── */
+  // Note: "annotate" panel is hidden from sidebar, only accessible via "Start Work" button
   const NAV_ITEMS: { id: Panel; label: string; icon: any; badge?: number | null }[] = [
     { id: "projects",  label: "المشاريع",      icon: FolderOpen,   badge: (allProjects?.filter((p: any) => p.status === "active").length) || null },
-    { id: "annotate",  label: "التوسيم",      icon: Brain,        badge: pendingTasks.length || null },
     { id: "feedback",  label: "الملاحظات",    icon: MessageSquare, badge: rejectedCount || null },
     { id: "profile",   label: "ملفي الشخصي",  icon: User,         badge: null },
   ];
-
   return (
     <div
       className="flex h-screen bg-[#F4F6FA] overflow-hidden"
@@ -605,9 +603,17 @@ export default function TaskerDashboard() {
             <span className="text-slate-400">الموسِّم</span>
             <span className="text-slate-200">/</span>
             <span className="text-slate-700 font-semibold">
-              {NAV_ITEMS.find(n => n.id === panel)?.label}
+              {panel === "annotate" ? "التوسيم" : NAV_ITEMS.find(n => n.id === panel)?.label}
             </span>
           </div>
+          {panel === "annotate" && (
+            <button
+              onClick={() => setPanel("projects")}
+              className="ml-auto text-xs text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-lg transition-all border border-slate-200 flex items-center gap-1.5"
+            >
+              <ChevronLeft size={14} /> عودة للمشاريع
+            </button>
+          )}
 
           {panel === "annotate" && (
             <div className="flex-1 max-w-sm mx-auto flex items-center gap-3">
