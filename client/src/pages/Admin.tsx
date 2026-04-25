@@ -304,7 +304,8 @@ function ProjectCard({ project, onViewDataset, onEdit, onDelete, onRefetch }: {
               {project.annotationType === "classification" ? "تصنيف" :
                project.annotationType === "multi_classification" ? "تصنيف متعدد" :
                project.annotationType === "ner" ? "NER" :
-               project.annotationType === "pairwise" ? "مقارنة" : project.annotationType}
+               project.annotationType === "pairwise" ? "مقارنة" :
+               project.annotationType === "html_interface" ? "🖥️ HTML" : project.annotationType}
             </span>
           )}
           {project.aiPreAnnotation  && <span className="text-xs bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full border border-purple-100">🤖 AI</span>}
@@ -1103,17 +1104,46 @@ export default function AdminDashboard() {
                   <option value="ner">تحديد كيانات (NER)</option>
                   <option value="pairwise">مقارنة نصين</option>
                   <option value="relations">علاقات بين كيانات</option>
+                  <option value="html_interface">🖥️ واجهة HTML مخصصة</option>
                 </select>
               </div>
-              <div>
-                <label className="text-sm font-medium">التصنيفات</label>
-                <p className="text-xs text-slate-400 mb-1">كل سطر: الاسم,اللون,الاختصار — مثال: إيجابي,#00D4A8,1</p>
-                <textarea className="w-full border border-slate-200 rounded-lg p-3 text-sm font-mono resize-none h-20 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400" placeholder={"إيجابي,#00D4A8,1\nسلبي,#EF4444,2\nمحايد,#94A3B8,3"} value={projectForm.labelsRaw} onChange={e => setProjectForm((f: any) => ({ ...f, labelsRaw: e.target.value }))} />
-              </div>
-              <div>
-                <label className="text-sm font-medium">تعليمات التوسيم</label>
-                <textarea className="w-full border border-slate-200 rounded-lg p-3 text-sm resize-none h-16 bg-white mt-1 focus:outline-none focus:ring-2 focus:ring-amber-400" dir="rtl" placeholder="اقرأ النص وصنِّفه..." value={projectForm.instructions} onChange={e => setProjectForm((f: any) => ({ ...f, instructions: e.target.value }))} />
-              </div>
+              {projectForm.annotationType === "html_interface" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium">🖥️ كود HTML الواجهة *</label>
+                    <span className="text-[11px] text-slate-400">الواجهة ستُعرض للتاسكر بدلاً من الويدجت الافتراضي</span>
+                  </div>
+                  <div className="rounded-xl overflow-hidden border border-slate-200 bg-[#0D1117]">
+                    <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 bg-[#161b22]">
+                      <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-red-500/60"/><div className="w-3 h-3 rounded-full bg-amber-500/60"/><div className="w-3 h-3 rounded-full bg-green-500/60"/></div>
+                      <span className="text-[11px] text-slate-500 font-mono mr-2">interface.html</span>
+                    </div>
+                    <textarea
+                      value={projectForm.instructions}
+                      onChange={e => setProjectForm((f: any) => ({ ...f, instructions: e.target.value }))}
+                      spellCheck={false}
+                      className="w-full bg-transparent text-slate-200 font-mono text-[12px] leading-6 p-4 resize-none h-48 outline-none border-0"
+                      style={{ direction: "ltr", textAlign: "left", tabSize: 2 }}
+                      placeholder={"<!DOCTYPE html>\n<html lang=\"ar\" dir=\"rtl\">\n<head><meta charset=\"UTF-8\"></head>\n<body>\n  <!-- واجهتك هنا -->\n  <script>\n    // أرسل النتيجة هكذا:\n    // window.parent.postMessage({ type: 'annotation_result', result: { label: 'اختيارك' } }, '*');\n  </script>\n</body>\n</html>"}
+                    />
+                  </div>
+                  <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                    💡 لإرسال نتيجة التوسيم، أضف هذا الكود في HTML: <code className="font-mono bg-amber-100 px-1 rounded">window.parent.postMessage(&#123; type: 'annotation_result', result: &#123; label: '...' &#125; &#125;, '*')</code>
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-sm font-medium">التصنيفات</label>
+                    <p className="text-xs text-slate-400 mb-1">كل سطر: الاسم,اللون,الاختصار — مثال: إيجابي,#00D4A8,1</p>
+                    <textarea className="w-full border border-slate-200 rounded-lg p-3 text-sm font-mono resize-none h-20 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400" placeholder={"إيجابي,#00D4A8,1\nسلبي,#EF4444,2\nمحايد,#94A3B8,3"} value={projectForm.labelsRaw} onChange={e => setProjectForm((f: any) => ({ ...f, labelsRaw: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">تعليمات التوسيم</label>
+                    <textarea className="w-full border border-slate-200 rounded-lg p-3 text-sm resize-none h-16 bg-white mt-1 focus:outline-none focus:ring-2 focus:ring-amber-400" dir="rtl" placeholder="اقرأ النص وصنِّفه..." value={projectForm.instructions} onChange={e => setProjectForm((f: any) => ({ ...f, instructions: e.target.value }))} />
+                  </div>
+                </>
+              )}
               <div className="flex flex-wrap items-center gap-4">
                 <label className="flex items-center gap-2 text-sm">
                   <input type="number" min={1} max={10} className="w-12 border border-slate-200 rounded px-2 py-1 text-sm text-center" value={projectForm.minAnnotations} onChange={e => setProjectForm((f: any) => ({ ...f, minAnnotations: Number(e.target.value) }))} />

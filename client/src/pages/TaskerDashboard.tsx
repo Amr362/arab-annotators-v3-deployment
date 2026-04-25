@@ -298,6 +298,35 @@ export default function TaskerDashboard() {
   }, [draftData]);
   useEffect(() => { setAnnotationResult(null); timer.reset(); }, [currentTask?.id]);
 
+  // Fix memory leak: single postMessage listener managed by useEffect
+  useEffect(() => {
+    const handler = (ev: MessageEvent) => {
+      if (ev.data?.type === "annotation_result") {
+        setAnnotationResult(ev.data.result);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  // Send task content to html_interface iframe when task changes
+  const htmlIframeRef = useRef<HTMLIFrameElement>(null);
+  useEffect(() => {
+    if (!currentTask || projectData?.annotationType !== "html_interface") return;
+    const iframe = htmlIframeRef.current;
+    if (!iframe) return;
+    const sendContent = () => {
+      try {
+        iframe.contentWindow?.postMessage(
+          { type: "task_content", content: currentTask.content, taskId: currentTask.id },
+          "*"
+        );
+      } catch {}
+    };
+    iframe.addEventListener("load", sendContent);
+    return () => iframe.removeEventListener("load", sendContent);
+  }, [currentTask?.id, projectData?.annotationType]);
+
   const { data: aiSuggestion } = trpc.aiAnnotation.suggest.useQuery(
     { taskId: currentTask?.id ?? 0, projectId: currentTask?.projectId ?? 0 },
     { enabled: !!currentTask && !!labelConfig.aiPreAnnotation }
@@ -332,7 +361,17 @@ export default function TaskerDashboard() {
   });
 
   async function handleSubmit() {
-    if (!currentTask || !annotationResult) return;
+    if (!currentTask) return;
+    const isHtmlInterface = projectData?.annotationType === "html_interface";
+
+    if (isHtmlInterface) {
+      // For html_interface: submit with whatever result was received from postMessage, or a default
+      const result = annotationResult ?? { html_interface: true, taskContent: currentTask.content, timeSpentSeconds: timer.seconds };
+      await submitAnnotation.mutateAsync({ taskId: currentTask.id, result });
+      return;
+    }
+
+    if (!annotationResult) return;
     const isEmpty =
       (annotationResult.labels !== undefined && annotationResult.labels.length === 0) ||
       (!annotationResult.labels && !annotationResult.spans?.length && !annotationResult.choice && !annotationResult.entities?.length);
@@ -707,20 +746,12 @@ export default function TaskerDashboard() {
                             واجهة تفاعلية مخصصة
                           </div>
                           <iframe
+                            ref={htmlIframeRef}
                             srcDoc={projectData.instructions ?? ""}
                             className="w-full border-0"
                             style={{ minHeight: "360px" }}
                             sandbox="allow-scripts allow-same-origin"
                             title="task-interface"
-                            onLoad={() => {
-                              const handler = (ev: MessageEvent) => {
-                                if (ev.data?.type === "annotation_result") {
-                                  setAnnotationResult(ev.data.result);
-                                }
-                              };
-                              window.addEventListener("message", handler);
-                              return () => window.removeEventListener("message", handler);
-                            }}
                           />
                           {currentTask.content && (
                             <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-sm text-slate-600 text-right" dir="rtl">
@@ -743,7 +774,7 @@ export default function TaskerDashboard() {
                   {/* Submit */}
                   <button
                     onClick={handleSubmit}
-                    disabled={!annotationResult || submitAnnotation.isPending}
+                    disabled={(projectData?.annotationType !== "html_interface" && !annotationResult) || submitAnnotation.isPending}
                     className="w-full py-3.5 rounded-2xl font-bold text-[15px] flex items-center justify-center gap-2.5 transition-all duration-200 bg-gradient-to-l from-amber-500 to-amber-400 text-white shadow-sm hover:from-amber-600 hover:to-amber-500 hover:shadow-lg hover:shadow-amber-200/50 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none"
                   >
                     {submitAnnotation.isPending

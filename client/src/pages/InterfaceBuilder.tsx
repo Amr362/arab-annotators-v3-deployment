@@ -85,8 +85,13 @@ const SAMPLE: InterfaceProject = {
     if (window.parent && window.parent !== window) {
       window.parent.postMessage({ type: 'annotation_result', result: { label: selected } }, '*');
     }
-    alert('تم تسليم التصنيف: ' + selected);
   }
+  // Receive task content from the platform
+  window.addEventListener('message', function(ev) {
+    if (ev.data?.type === 'task_content' && ev.data.content) {
+      document.getElementById('proverb-text').textContent = ev.data.content;
+    }
+  });
 </script>
 </body>
 </html>`,
@@ -107,16 +112,20 @@ export default function InterfaceBuilder() {
   const [publishForm, setPublishForm] = useState({ name: "", description: "", tasks: "" });
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  const deleteProjectMutation = trpc.projects.delete.useMutation({
+    onSuccess: () => toast.success("تم حذف المشروع من السيرفر"),
+    onError: (e) => toast.error("فشل حذف المشروع: " + e.message),
+  });
+
   const createProject = trpc.taskManagement.createProjectWithTasks.useMutation({
     onSuccess: (r) => {
       toast.success(`✅ تم نشر الواجهة — ${r?.taskCount ?? 0} مهمة`);
-      if (activeId && r?.projectId) {
-        const updated = projects.map(p =>
-          p.id === activeId ? { ...p, publishedProjectId: r.projectId } : p
-        );
-        setProjects(updated);
-        saveProjects(updated);
-      }
+      // Remove published interface from localStorage after successful publish
+      const updated = projects.filter(p => p.id !== activeId);
+      setProjects(updated);
+      saveProjects(updated);
+      setActiveId(updated[0]?.id ?? null);
+      setHtml(updated[0]?.html ?? "");
       setShowPublishModal(false);
     },
     onError: (e) => toast.error(e.message),
@@ -170,7 +179,16 @@ export default function InterfaceBuilder() {
   }
 
   function deleteProject(id: string) {
-    if (!confirm("حذف هذه الواجهة؟")) return;
+    const proj = projects.find(p => p.id === id);
+    if (!confirm(proj?.publishedProjectId
+      ? "حذف هذه الواجهة والمشروع المنشور على السيرفر؟"
+      : "حذف هذه الواجهة؟")) return;
+
+    // Delete server-side project if it was published
+    if (proj?.publishedProjectId) {
+      deleteProjectMutation.mutate({ id: proj.publishedProjectId });
+    }
+
     const updated = projects.filter(p => p.id !== id);
     setProjects(updated);
     saveProjects(updated);
@@ -259,7 +277,8 @@ export default function InterfaceBuilder() {
                   </div>
                   <button
                     onClick={e => { e.stopPropagation(); deleteProject(p.id); }}
-                    className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 transition-all"
+                    className="text-slate-300 hover:text-red-400 transition-all flex-shrink-0"
+                    title="حذف الواجهة"
                   >
                     <Trash2 size={13} />
                   </button>
