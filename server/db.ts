@@ -222,8 +222,8 @@ export async function getQAQueue(reviewerId: number) {
     })
     .from(annotations)
     .innerJoin(tasks, eq(annotations.taskId, tasks.id))
-    .innerJoin(users, eq(annotations.userId, users.id))
-    .innerJoin(projects, eq(tasks.projectId, projects.id))
+    .leftJoin(users, eq(annotations.userId, users.id))
+    .leftJoin(projects, eq(tasks.projectId, projects.id))
     .where(eq(annotations.status, "pending_review"));
   return rows;
 }
@@ -622,13 +622,14 @@ export async function getAdminStats() {
     ORDER BY day ASC
   `);
 
-  return {
+    return {
     totalUsers: Number(totalUsers[0]?.c ?? 0),
     totalTaskers: Number(totalTaskers[0]?.c ?? 0),
     totalQA: Number(totalQA[0]?.c ?? 0),
     totalProjects: Number(totalProjects[0]?.c ?? 0),
     totalTasks: Number(totalTasks[0]?.c ?? 0),
     pendingAnnotations: Number(pendingAnnotations[0]?.c ?? 0),
+    submittedAnnotations: Number(pendingAnnotations[0]?.c ?? 0), // Alias for frontend compatibility
     approvedAnnotations: Number(approvedAnnotations[0]?.c ?? 0),
     rejectedAnnotations: Number(rejectedAnnotations[0]?.c ?? 0),
     todayAnnotations: Number(todayAnnotations[0]?.c ?? 0),

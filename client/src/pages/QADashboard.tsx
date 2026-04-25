@@ -306,8 +306,8 @@ export default function QADashboard() {
                               )}
                             </h3>
                             <div className="flex items-center gap-3 text-[11px] text-slate-500">
-                              <span className="flex items-center gap-1"><Folder size={12} /> {item.projectName}</span>
-                              <span className="flex items-center gap-1"><User size={12} /> {item.taskerName}</span>
+                              <span className="flex items-center gap-1"><Folder size={12} /> {item.projectName || "مشروع غير معروف"}</span>
+                              <span className="flex items-center gap-1"><User size={12} /> {item.taskerName || "تاسكر غير معروف"}</span>
                             </div>
                           </div>
                           <Badge variant={item.status === "approved" ? "default" : item.status === "rejected" ? "destructive" : "secondary"} className="flex-shrink-0 text-xs">
