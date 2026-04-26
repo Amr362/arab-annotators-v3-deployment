@@ -70,20 +70,34 @@ export default function ManagerDashboard() {
   });
 
   // ─── Queries ─────────────────────────────────────────────────────────────────
-  const { data: stats }        = trpc.adminStats.get.useQuery();
+  const { data: stats, refetch: refetchStats }        = trpc.adminStats.get.useQuery(undefined, {
+    refetchInterval: 10000,      // poll every 10 s so new task counts appear automatically
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
   const { data: users = [] }   = trpc.admin.getAllUsers.useQuery();
   const { data: leaderboard }  = trpc.leaderboard.get.useQuery();
-  const { data: allProjects }  = trpc.projects.getAll.useQuery();
+  const { data: allProjects }  = trpc.projects.getAll.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
   const { data: unassigned, refetch: refetchUnassigned } = trpc.taskManagement.getUnassigned.useQuery(
     { projectId: assignProjectId ?? 0 },
-    { enabled: !!assignProjectId },
+    {
+      enabled: !!assignProjectId,
+      refetchInterval: 5000,     // poll every 5 s so newly added tasks appear immediately
+      refetchOnWindowFocus: true,
+      staleTime: 0,
+    },
   );
 
   // ─── Mutations ───────────────────────────────────────────────────────────────
   const assignTasks = trpc.taskManagement.assignTasks.useMutation({
     onSuccess: (res: any) => {
       toast.success(`تم تعيين ${res?.assigned ?? assignCount} مهمة بنجاح`);
+      // Immediately refresh unassigned list and overall stats
       refetchUnassigned();
+      refetchStats();
     },
     onError: (e: any) => toast.error(e.message),
   });

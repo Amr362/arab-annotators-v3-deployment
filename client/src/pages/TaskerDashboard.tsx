@@ -279,18 +279,31 @@ export default function TaskerDashboard() {
   const [editName, setEditName] = useState("");
 
   const timer = useTimer(true);
-  const { data: tasks, isLoading, refetch } = trpc.tasker.getTasks.useQuery();
-  const { data: stats, refetch: refetchStats } = trpc.tasker.getStats.useQuery();
+  const { data: tasks, isLoading, refetch } = trpc.tasker.getTasks.useQuery(undefined, {
+    refetchInterval: 5000,        // poll every 5 s so new tasks appear automatically
+    refetchOnWindowFocus: true,   // re-fetch when user switches back to the tab
+    staleTime: 0,                 // always treat cached data as stale
+  });
+  const { data: stats, refetch: refetchStats } = trpc.tasker.getStats.useQuery(undefined, {
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
   const { data: feedback } = trpc.tasker.getFeedback.useQuery();
   // Get all active projects that tasker can work on
-  const { data: allProjects } = trpc.tasker.getAvailableProjects.useQuery();
+  const { data: allProjects, refetch: refetchProjects } = trpc.tasker.getAvailableProjects.useQuery(undefined, {
+    refetchInterval: 10000,       // poll every 10 s for new projects
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
 
   // Queue-based task pull: tasker requests the next available task from the pool
   const getNextTask = trpc.tasker.getNextTask.useMutation({
     onSuccess: (task) => {
       if (!task) { toast("🗕️ لا توجد مهام متاحة حالياً"); return; }
       toast.success("✅ تم تخصيص مهمة جديدة");
-      refetch(); refetchStats();
+      // Immediately refresh all relevant data after pulling a new task
+      refetch(); refetchStats(); refetchProjects();
       // Switch to annotation panel immediately after getting task
       setPanel("annotate");
       setCurrentIdx(0);
