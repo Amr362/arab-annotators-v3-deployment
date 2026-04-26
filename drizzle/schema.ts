@@ -4,7 +4,7 @@ import { integer, pgEnum, pgTable, text, timestamp, varchar, boolean, decimal, j
  * Core user table backing auth flow.
  * Extended with Arab Annotators specific fields.
  */
-export const roleEnum = pgEnum("role", ["user", "admin", "tasker", "qa"]);
+export const roleEnum = pgEnum("role", ["user", "admin", "tasker", "qa", "manager"]);
 
 export const users = pgTable("users", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

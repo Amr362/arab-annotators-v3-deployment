@@ -164,13 +164,18 @@ function AchievementBadge({ achievement, unlocked }: { achievement: typeof ACHIE
   );
 }
 
-function ProjectCard({ project, myTaskCount }: { project: any; myTaskCount?: number }) {
+function ProjectCard({ project, myTaskCount, onStartWork, isStarting }: {
+  project: any;
+  myTaskCount?: number;
+  onStartWork?: (projectId: number) => void;
+  isStarting?: boolean;
+}) {
   const pct = project.totalItems > 0 ? (project.completedItems / project.totalItems) * 100 : 0;
   const sc = projectStatusColor[project.status] ?? projectStatusColor.active;
   const tc = annotationTypeLabel[project.annotationType ?? "classification"];
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all group p-5">
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all group p-5 flex flex-col">
       {/* header */}
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -207,7 +212,7 @@ function ProjectCard({ project, myTaskCount }: { project: any; myTaskCount?: num
       </div>
 
       {/* progress */}
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 mb-4">
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-slate-400">التقدم الكلي</span>
           <span className="text-[11px] font-bold text-slate-700 tabular-nums">{Math.round(pct)}%</span>
@@ -226,6 +231,24 @@ function ProjectCard({ project, myTaskCount }: { project: any; myTaskCount?: num
           <span>{project.totalItems?.toLocaleString("ar") ?? 0} إجمالي</span>
         </div>
       </div>
+
+      {/* Action Button */}
+      {project.status === "active" && onStartWork && (
+        <button
+          onClick={() => onStartWork(project.id)}
+          disabled={isStarting}
+          className="mt-auto w-full py-2 rounded-xl bg-slate-50 hover:bg-[#00D4A8] hover:text-white text-slate-600 text-xs font-bold transition-all flex items-center justify-center gap-2 border border-slate-100 hover:border-[#00D4A8]"
+        >
+          {isStarting ? (
+            <RefreshCw size={14} className="animate-spin" />
+          ) : (
+            <>
+              <Zap size={14} />
+              ابدأ العمل
+            </>
+          )}
+        </button>
+      )}
     </div>
   );
 }
@@ -235,7 +258,7 @@ function ProjectCard({ project, myTaskCount }: { project: any; myTaskCount?: num
 export default function TaskerDashboard() {
   const { user } = useAuth();
 
-  const [panel, setPanel] = useState<Panel>("annotate");
+  const [panel, setPanel] = useState<Panel>("projects");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -259,14 +282,17 @@ export default function TaskerDashboard() {
   const { data: tasks, isLoading, refetch } = trpc.tasker.getTasks.useQuery();
   const { data: stats, refetch: refetchStats } = trpc.tasker.getStats.useQuery();
   const { data: feedback } = trpc.tasker.getFeedback.useQuery();
-  const { data: allProjects } = trpc.projects.getAll.useQuery();
+  // Get all active projects that tasker can work on
+  const { data: allProjects } = trpc.tasker.getAvailableProjects.useQuery();
 
   // Queue-based task pull: tasker requests the next available task from the pool
   const getNextTask = trpc.tasker.getNextTask.useMutation({
     onSuccess: (task) => {
-      if (!task) { toast("🕊️ لا توجد مهام متاحة حالياً"); return; }
+      if (!task) { toast("🗕️ لا توجد مهام متاحة حالياً"); return; }
       toast.success("✅ تم تخصيص مهمة جديدة");
       refetch(); refetchStats();
+      // Switch to annotation panel immediately after getting task
+      setPanel("annotate");
       setCurrentIdx(0);
     },
     onError: e => toast.error(e.message),
@@ -274,16 +300,6 @@ export default function TaskerDashboard() {
 
   const pendingTasks = (tasks ?? []).filter(t => t.status === "pending" || t.status === "in_progress");
   const currentTask = pendingTasks[currentIdx] ?? null;
-
-  // Auto-fetch next task from queue if no tasks available
-  useEffect(() => {
-    if (pendingTasks.length === 0 && !isLoading) {
-      const timer = setTimeout(() => {
-        getNextTask.mutate({});
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [pendingTasks.length, isLoading]);
 
   const { data: projectData } = trpc.projectConfig.get.useQuery(
     { projectId: currentTask?.projectId ?? 0 }, { enabled: !!currentTask }
@@ -309,6 +325,35 @@ export default function TaskerDashboard() {
   }, [draftData]);
   useEffect(() => { setAnnotationResult(null); timer.reset(); }, [currentTask?.id]);
 
+  // Fix memory leak: single postMessage listener managed by useEffect
+  useEffect(() => {
+    const handler = (ev: MessageEvent) => {
+      if (ev.data?.type === "annotation_result") {
+        setAnnotationResult(ev.data.result);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  // Send task content to html_interface iframe when task changes
+  const htmlIframeRef = useRef<HTMLIFrameElement>(null);
+  useEffect(() => {
+    if (!currentTask || projectData?.annotationType !== "html_interface") return;
+    const iframe = htmlIframeRef.current;
+    if (!iframe) return;
+    const sendContent = () => {
+      try {
+        iframe.contentWindow?.postMessage(
+          { type: "task_content", content: currentTask.content, taskId: currentTask.id },
+          "*"
+        );
+      } catch {}
+    };
+    iframe.addEventListener("load", sendContent);
+    return () => iframe.removeEventListener("load", sendContent);
+  }, [currentTask?.id, projectData?.annotationType]);
+
   const { data: aiSuggestion } = trpc.aiAnnotation.suggest.useQuery(
     { taskId: currentTask?.id ?? 0, projectId: currentTask?.projectId ?? 0 },
     { enabled: !!currentTask && !!labelConfig.aiPreAnnotation }
@@ -327,35 +372,33 @@ export default function TaskerDashboard() {
       setAnnotationResult(null); timer.reset();
       refetch(); refetchStats();
       setCurrentIdx(i => Math.max(0, Math.min(i, pendingTasks.length - 2)));
-      // Auto-fetch next task if no more tasks available
-      setTimeout(() => {
-        if (pendingTasks.length <= 1) {
-          getNextTask.mutate({});
-        }
-      }, 300);
     },
     onError: e => toast.error(e.message),
   });
 
   const skipTask = trpc.taskSkip.skip.useMutation({
     onSuccess: () => {
-      toast("⚡ تم تخطي المهمة");
+      toast("⏭️ تم تخطي المهمة");
       setShowSkipModal(false); setSkipReason("");
       setAnnotationResult(null); timer.reset();
       refetch(); refetchStats();
       setCurrentIdx(i => Math.max(0, Math.min(i, pendingTasks.length - 2)));
-      // Auto-fetch next task if no more tasks available
-      setTimeout(() => {
-        if (pendingTasks.length <= 1) {
-          getNextTask.mutate({});
-        }
-      }, 300);
     },
     onError: e => toast.error(e.message),
   });
 
   async function handleSubmit() {
-    if (!currentTask || !annotationResult) return;
+    if (!currentTask) return;
+    const isHtmlInterface = projectData?.annotationType === "html_interface";
+
+    if (isHtmlInterface) {
+      // For html_interface: submit with whatever result was received from postMessage, or a default
+      const result = annotationResult ?? { html_interface: true, taskContent: currentTask.content, timeSpentSeconds: timer.seconds };
+      await submitAnnotation.mutateAsync({ taskId: currentTask.id, result });
+      return;
+    }
+
+    if (!annotationResult) return;
     const isEmpty =
       (annotationResult.labels !== undefined && annotationResult.labels.length === 0) ||
       (!annotationResult.labels && !annotationResult.spans?.length && !annotationResult.choice && !annotationResult.entities?.length);
@@ -415,19 +458,16 @@ export default function TaskerDashboard() {
     if (a.field === "totalCompleted") return (s.totalCompleted ?? 0) >= a.threshold;
     if (a.field === "completedToday") return (s.completedToday ?? 0) >= a.threshold;
     if (a.field === "accuracy") return (s.accuracy ?? 0) >= a.threshold;
-    if (a.field === "streak") return streak >= a.threshold;
+    if (a.field === "streak") return (s.streak ?? 0) >= a.threshold;
     return false;
   };
 
-  /* ── nav items ── */
+  // Note: "annotate" panel is hidden from sidebar, only accessible via "Start Work" button
   const NAV_ITEMS: { id: Panel; label: string; icon: any; badge?: number | null }[] = [
-    { id: "annotate",  label: "التوسيم",      icon: Brain,        badge: pendingTasks.length || null },
-    { id: "tasks",     label: "المهام",        icon: LayoutList,   badge: null },
     { id: "projects",  label: "المشاريع",      icon: FolderOpen,   badge: (allProjects?.filter((p: any) => p.status === "active").length) || null },
     { id: "feedback",  label: "الملاحظات",    icon: MessageSquare, badge: rejectedCount || null },
     { id: "profile",   label: "ملفي الشخصي",  icon: User,         badge: null },
   ];
-
   return (
     <div
       className="flex h-screen bg-[#F4F6FA] overflow-hidden"
@@ -563,9 +603,17 @@ export default function TaskerDashboard() {
             <span className="text-slate-400">الموسِّم</span>
             <span className="text-slate-200">/</span>
             <span className="text-slate-700 font-semibold">
-              {NAV_ITEMS.find(n => n.id === panel)?.label}
+              {panel === "annotate" ? "التوسيم" : NAV_ITEMS.find(n => n.id === panel)?.label}
             </span>
           </div>
+          {panel === "annotate" && (
+            <button
+              onClick={() => setPanel("projects")}
+              className="ml-auto text-xs text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-lg transition-all border border-slate-200 flex items-center gap-1.5"
+            >
+              <ChevronLeft size={14} /> عودة للمشاريع
+            </button>
+          )}
 
           {panel === "annotate" && (
             <div className="flex-1 max-w-sm mx-auto flex items-center gap-3">
@@ -730,20 +778,12 @@ export default function TaskerDashboard() {
                             واجهة تفاعلية مخصصة
                           </div>
                           <iframe
+                            ref={htmlIframeRef}
                             srcDoc={projectData.instructions ?? ""}
                             className="w-full border-0"
                             style={{ minHeight: "360px" }}
                             sandbox="allow-scripts allow-same-origin"
                             title="task-interface"
-                            onLoad={() => {
-                              const handler = (ev: MessageEvent) => {
-                                if (ev.data?.type === "annotation_result") {
-                                  setAnnotationResult(ev.data.result);
-                                }
-                              };
-                              window.addEventListener("message", handler);
-                              return () => window.removeEventListener("message", handler);
-                            }}
                           />
                           {currentTask.content && (
                             <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-sm text-slate-600 text-right" dir="rtl">
@@ -766,7 +806,7 @@ export default function TaskerDashboard() {
                   {/* Submit */}
                   <button
                     onClick={handleSubmit}
-                    disabled={!annotationResult || submitAnnotation.isPending}
+                    disabled={(projectData?.annotationType !== "html_interface" && !annotationResult) || submitAnnotation.isPending}
                     className="w-full py-3.5 rounded-2xl font-bold text-[15px] flex items-center justify-center gap-2.5 transition-all duration-200 bg-gradient-to-l from-amber-500 to-amber-400 text-white shadow-sm hover:from-amber-600 hover:to-amber-500 hover:shadow-lg hover:shadow-amber-200/50 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none"
                   >
                     {submitAnnotation.isPending
@@ -844,9 +884,9 @@ export default function TaskerDashboard() {
           )}
 
           {/* ═══════════════════════════════
-              TASKS PANEL
+              TASKS PANEL - HIDDEN (moved to Projects)
           ═══════════════════════════════ */}
-          {panel === "tasks" && (
+          {false && panel === "tasks" && (
             <div className="flex-1 overflow-auto p-5 space-y-4">
               <div className="flex gap-3 flex-wrap items-center bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
                 <div className="relative flex-1 min-w-[200px]">
@@ -947,7 +987,13 @@ export default function TaskerDashboard() {
                     {(allProjects ?? [])
                       .filter((p: any) => myProjectMap[p.id])
                       .map((p: any) => (
-                        <ProjectCard key={p.id} project={p} myTaskCount={myProjectMap[p.id]} />
+                        <ProjectCard
+                          key={p.id}
+                          project={p}
+                          myTaskCount={myProjectMap[p.id]}
+                          onStartWork={(pid) => getNextTask.mutate({ projectId: pid })}
+                          isStarting={getNextTask.isPending}
+                        />
                       ))}
                   </div>
                 </div>
@@ -973,7 +1019,12 @@ export default function TaskerDashboard() {
                     {(allProjects ?? [])
                       .filter((p: any) => p.status === "active")
                       .map((p: any) => (
-                        <ProjectCard key={p.id} project={p} />
+                        <ProjectCard
+                        key={p.id}
+                        project={p}
+                        onStartWork={(pid) => getNextTask.mutate({ projectId: pid })}
+                        isStarting={getNextTask.isPending}
+                      />
                       ))}
                   </div>
                 )}
@@ -990,7 +1041,12 @@ export default function TaskerDashboard() {
                     {(allProjects ?? [])
                       .filter((p: any) => p.status === "completed")
                       .map((p: any) => (
-                        <ProjectCard key={p.id} project={p} />
+                        <ProjectCard
+                        key={p.id}
+                        project={p}
+                        onStartWork={(pid) => getNextTask.mutate({ projectId: pid })}
+                        isStarting={getNextTask.isPending}
+                      />
                       ))}
                   </div>
                 </div>

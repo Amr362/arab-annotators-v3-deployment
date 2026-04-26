@@ -204,20 +204,27 @@ export async function getTaskerStats(userId: number) {
 export async function getQAQueue(reviewerId: number) {
   const db = await getDb();
   if (!db) return [];
-  // Return pending annotations that need review, joined with task content
+  // Return pending annotations that need review, joined with task content, tasker name, and project info
+  // Using LEFT JOIN for everything to ensure annotations show up even if project/user is missing/deleted
   const rows = await db
     .select({
       id: annotations.id,
       taskId: annotations.taskId,
       userId: annotations.userId,
+      taskerName: users.name,
       result: annotations.result,
       confidence: annotations.confidence,
       status: annotations.status,
       createdAt: annotations.createdAt,
       taskContent: tasks.content,
+      projectId: tasks.projectId,
+      projectName: projects.name,
+      projectStatus: projects.status,
     })
     .from(annotations)
-    .innerJoin(tasks, eq(annotations.taskId, tasks.id))
+    .leftJoin(tasks, eq(annotations.taskId, tasks.id))
+    .leftJoin(users, eq(annotations.userId, users.id))
+    .leftJoin(projects, eq(tasks.projectId, projects.id))
     .where(eq(annotations.status, "pending_review"));
   return rows;
 }
@@ -616,13 +623,16 @@ export async function getAdminStats() {
     ORDER BY day ASC
   `);
 
-  return {
+    return {
     totalUsers: Number(totalUsers[0]?.c ?? 0),
     totalTaskers: Number(totalTaskers[0]?.c ?? 0),
     totalQA: Number(totalQA[0]?.c ?? 0),
     totalProjects: Number(totalProjects[0]?.c ?? 0),
     totalTasks: Number(totalTasks[0]?.c ?? 0),
     pendingAnnotations: Number(pendingAnnotations[0]?.c ?? 0),
+    submittedAnnotations: Number(pendingAnnotations[0]?.c ?? 0), // Alias for frontend compatibility
+    // Add a "totalSubmitted" that includes all non-draft annotations for better visibility
+    totalSubmitted: Number(pendingAnnotations[0]?.c ?? 0) + Number(approvedAnnotations[0]?.c ?? 0) + Number(rejectedAnnotations[0]?.c ?? 0),
     approvedAnnotations: Number(approvedAnnotations[0]?.c ?? 0),
     rejectedAnnotations: Number(rejectedAnnotations[0]?.c ?? 0),
     todayAnnotations: Number(todayAnnotations[0]?.c ?? 0),
@@ -740,4 +750,65 @@ export async function bootstrapAdmin(opts: { name: string; email: string; passwo
     isActive: true,
   });
   console.log(`[Bootstrap] Admin account created: ${opts.email}`);
+}
+
+// ─── Tasker: Submit annotation ───────────────────────────────────────────────
+export async function submitTaskAnnotation(taskId: number, userId: number, result: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // 1. Check if there's an existing draft for this user and task
+  const existingDraft = await db
+    .select({ id: annotations.id })
+    .from(annotations)
+    .where(and(
+      eq(annotations.taskId, taskId),
+      eq(annotations.userId, userId),
+      eq(annotations.isDraft, true)
+    ))
+    .limit(1);
+
+  const timeSpentSeconds = result.timeSpentSeconds || 0;
+
+  if (existingDraft.length > 0) {
+    // Update existing draft to be a final submission
+    await db.update(annotations)
+      .set({
+        result: result,
+        isDraft: false,
+        status: "pending_review",
+        timeSpentSeconds: timeSpentSeconds,
+        updatedAt: new Date()
+      })
+      .where(eq(annotations.id, existingDraft[0].id));
+  } else {
+    // Insert new final annotation
+    await db.insert(annotations).values({
+      taskId,
+      userId,
+      result,
+      isDraft: false,
+      status: "pending_review",
+      timeSpentSeconds: timeSpentSeconds,
+    });
+  }
+
+  // 2. Update task status to submitted
+  await db.update(tasks)
+    .set({
+      status: "submitted",
+      updatedAt: new Date()
+    })
+    .where(eq(tasks.id, taskId));
+
+  // 3. Increment project completedItems counter
+  const task = await db.select({ projectId: tasks.projectId }).from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  if (task.length > 0) {
+    await db.execute(sql`
+      UPDATE projects SET "completedItems" = "completedItems" + 1, "updatedAt" = NOW()
+      WHERE id = ${task[0].projectId}
+    `);
+  }
+
+  return { success: true };
 }

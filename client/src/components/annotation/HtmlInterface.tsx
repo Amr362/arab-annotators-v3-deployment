@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AnnotationResult } from "./types";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 interface Props {
   html: string;           // The full HTML string stored in instructions
@@ -26,11 +27,12 @@ interface Props {
 export default function HtmlInterface({ html, text, onChange, readOnly }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [received, setReceived] = useState<AnnotationResult | null>(null);
+  const { user } = useAuth();
 
-  // ── Inject task text into iframe once it loads ──────────────────────────
+  // ── Inject task text and role into iframe once it loads ──────────────────
   function handleLoad() {
     iframeRef.current?.contentWindow?.postMessage(
-      { type: "init_task", task: { text } },
+      { type: "init_task", task: { text }, role: user?.role },
       "*"
     );
   }
@@ -61,13 +63,13 @@ export default function HtmlInterface({ html, text, onChange, readOnly }: Props)
     return () => window.removeEventListener("message", onMessage);
   }, [onChange, readOnly]);
 
-  // ── Re-send task text whenever it changes ────────────────────────────────
+  // ── Re-send task text and role whenever they change ──────────────────────
   useEffect(() => {
     iframeRef.current?.contentWindow?.postMessage(
-      { type: "init_task", task: { text } },
+      { type: "init_task", task: { text }, role: user?.role },
       "*"
     );
-  }, [text]);
+  }, [text, user?.role]);
 
   return (
     <div className="flex flex-col gap-2 w-full">

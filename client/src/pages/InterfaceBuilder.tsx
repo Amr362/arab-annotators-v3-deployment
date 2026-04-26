@@ -85,8 +85,13 @@ const SAMPLE: InterfaceProject = {
     if (window.parent && window.parent !== window) {
       window.parent.postMessage({ type: 'annotation_result', result: { label: selected } }, '*');
     }
-    alert('تم تسليم التصنيف: ' + selected);
   }
+  // Receive task content from the platform
+  window.addEventListener('message', function(ev) {
+    if (ev.data?.type === 'task_content' && ev.data.content) {
+      document.getElementById('proverb-text').textContent = ev.data.content;
+    }
+  });
 </script>
 </body>
 </html>`,
@@ -107,31 +112,21 @@ export default function InterfaceBuilder() {
   const [publishForm, setPublishForm] = useState({ name: "", description: "", tasks: "" });
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  const deleteProjectMutation = trpc.projects.delete.useMutation({
+    onSuccess: () => toast.success("تم حذف المشروع من السيرفر"),
+    onError: (e) => toast.error("فشل حذف المشروع: " + e.message),
+  });
+
   const createProject = trpc.taskManagement.createProjectWithTasks.useMutation({
     onSuccess: (r) => {
       toast.success(`✅ تم نشر الواجهة — ${r?.taskCount ?? 0} مهمة`);
-      if (activeId && r?.projectId) {
-        const updated = projects.map(p =>
-          p.id === activeId ? { ...p, publishedProjectId: r.projectId } : p
-        );
-        setProjects(updated);
-        saveProjects(updated);
-      }
+      // Remove published interface from localStorage after successful publish
+      const updated = projects.filter(p => p.id !== activeId);
+      setProjects(updated);
+      saveProjects(updated);
+      setActiveId(updated[0]?.id ?? null);
+      setHtml(updated[0]?.html ?? "");
       setShowPublishModal(false);
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const deletePublishedProject = trpc.projects.delete.useMutation({
-    onSuccess: () => {
-      toast.success("✅ تم حذف المشروع المنشور");
-      if (activeId) {
-        const updated = projects.map(p =>
-          p.id === activeId ? { ...p, publishedProjectId: undefined } : p
-        );
-        setProjects(updated);
-        saveProjects(updated);
-      }
     },
     onError: (e) => toast.error(e.message),
   });
@@ -183,13 +178,17 @@ export default function InterfaceBuilder() {
     toast.success("تم إنشاء الواجهة");
   }
 
-  function deleteInterface(id: string) {
-    if (!confirm("حذف هذه الواجهة؟")) return;
-    const project = projects.find(p => p.id === id);
-    if (project?.publishedProjectId) {
-      if (!confirm("هذه الواجهة منشورة. حذفها سيحذف المشروع أيضاً. هل أنت متأكد؟")) return;
-      deletePublishedProject.mutate({ id: project.publishedProjectId });
+  function deleteProject(id: string) {
+    const proj = projects.find(p => p.id === id);
+    if (!confirm(proj?.publishedProjectId
+      ? "حذف هذه الواجهة والمشروع المنشور على السيرفر؟"
+      : "حذف هذه الواجهة؟")) return;
+
+    // Delete server-side project if it was published
+    if (proj?.publishedProjectId) {
+      deleteProjectMutation.mutate({ id: proj.publishedProjectId });
     }
+
     const updated = projects.filter(p => p.id !== id);
     setProjects(updated);
     saveProjects(updated);
@@ -217,11 +216,10 @@ export default function InterfaceBuilder() {
     createProject.mutate({
       name: publishForm.name.trim(),
       description: publishForm.description.trim(),
+      // labelStudioProjectId: 0, // Removed to avoid unique constraint issues
       tasksText: publishForm.tasks,
       annotationType: "html_interface",
       instructions: activeProject.html,
-      labelsConfig: { labels: [] },
-      minAnnotations: 1,
     });
   }
 
@@ -278,8 +276,9 @@ export default function InterfaceBuilder() {
                     )}
                   </div>
                   <button
-                    onClick={e => { e.stopPropagation(); deleteInterface(p.id); }}
-                    className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 transition-all"
+                    onClick={e => { e.stopPropagation(); deleteProject(p.id); }}
+                    className="text-slate-300 hover:text-red-400 transition-all flex-shrink-0"
+                    title="حذف الواجهة"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -487,14 +486,6 @@ export default function InterfaceBuilder() {
                 />
                 <p className="text-[11px] text-slate-400 mt-1">
                   {publishForm.tasks.split("\n").filter(l => l.trim()).length} مهمة
-                </p>
-              </div>
-
-              {/* Info about queue-based task assignment */}
-              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex gap-3">
-                <AlertCircle size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
-                <p className="text-[12px] text-blue-700">
-                  ✅ سيظهر هذا المشروع للتاسكرز تلقائياً عند سحب مهمة جديدة من المجموعة المشتركة.
                 </p>
               </div>
 

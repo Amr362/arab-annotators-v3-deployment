@@ -6,10 +6,13 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Login from "./pages/Login";
 import Admin from "./pages/Admin";
+import ProjectsPage from "./pages/ProjectsPage";
+import CreateProjectPage from "./pages/CreateProjectPage";
 import TaskerDashboard from "./pages/TaskerDashboard";
 import QADashboard from "./pages/QADashboard";
 import IAADashboard from "./pages/IAADashboard";
 import InterfaceBuilder from "./pages/InterfaceBuilder";
+import ManagerDashboard from "./pages/ManagerDashboard";
 
 function Router() {
   return (
@@ -17,10 +20,13 @@ function Router() {
       <Route path="/" component={Login} />
       <Route path="/login" component={Login} />
       <Route path="/admin" component={Admin} />
+      <Route path="/admin/projects" component={ProjectsPage} />
+      <Route path="/admin/projects/create" component={CreateProjectPage} />
       <Route path="/admin/interface" component={InterfaceBuilder} />
       <Route path="/tasker/tasks" component={TaskerDashboard} />
       <Route path="/qa/queue" component={QADashboard} />
       <Route path="/iaa" component={IAADashboard} />
+      <Route path="/manager" component={ManagerDashboard} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

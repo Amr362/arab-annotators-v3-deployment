@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
+import { publicProcedure, router, protectedProcedure, adminProcedure, managerProcedure } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, isNull, ne } from "drizzle-orm";
@@ -32,22 +32,22 @@ export const appRouter = router({
   // Admin procedures for user management
   admin: router({
     // Get all users
-    getAllUsers: adminProcedure.query(async () => {
+    getAllUsers: managerProcedure.query(async () => {
       return await db.getAllUsers();
     }),
 
     // Get user by ID
-    getUser: adminProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    getUser: managerProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
       return await db.getUserById(input.id);
     }),
 
     // Create new user (local, not OAuth) — server generates openId
-    createUser: adminProcedure
+    createUser: managerProcedure
       .input(
         z.object({
           name: z.string().min(1),
           email: z.string().email(),
-          role: z.enum(["admin", "tasker", "qa", "user"]),
+          role: z.enum(["admin", "manager", "tasker", "qa", "user"]),
           password: z.string().min(6),
         })
       )
@@ -83,7 +83,7 @@ export const appRouter = router({
       }),
 
     // Bulk create users
-    bulkCreateUsers: adminProcedure
+    bulkCreateUsers: managerProcedure
       .input(z.object({
         count: z.number().min(1).max(50),
         role: z.enum(["tasker", "qa"]),
@@ -120,13 +120,13 @@ export const appRouter = router({
       }),
 
     // Update user — proper undefined checks so empty strings are accepted
-    updateUser: adminProcedure
+    updateUser: managerProcedure
       .input(
         z.object({
           id: z.number(),
           name: z.string().min(1).optional(),
           email: z.string().email().optional(),
-          role: z.enum(["admin", "tasker", "qa", "user"]).optional(),
+          role: z.enum(["admin", "manager", "tasker", "qa", "user"]).optional(),
           isActive: z.boolean().optional(),
         })
       )
@@ -149,7 +149,7 @@ export const appRouter = router({
       }),
 
     // Delete user
-    deleteUser: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    deleteUser: managerProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       const drizzleDb = await db.getDb();
       if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -397,6 +397,16 @@ export const appRouter = router({
 
   // Tasker procedures
   tasker: router({
+    // Get all active projects for tasker to see available work
+    getAvailableProjects: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "tasker" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      // Return only active projects
+      const allProjects = await db.getAllProjects();
+      return allProjects.filter(p => p.status === "active");
+    }),
+
     getTasks: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "tasker" && ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN" });
@@ -487,9 +497,101 @@ export const appRouter = router({
     }),
   }),
 
+  // ── QA router ────────────────────────────────────────────────────────────────
+  qa: router({
+    // Get QA queue optionally filtered by projectId
+    getQueue: protectedProcedure
+      .input(z.object({ projectId: z.number().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return [];
+        const { and: andOp, eq: eqOp } = await import("drizzle-orm");
+        const whereClause = input?.projectId
+          ? andOp(eqOp(annotations.status, "pending_review"), eqOp(tasks.projectId, input.projectId))
+          : eqOp(annotations.status, "pending_review");
+        const rows = await drizzleDb
+          .select({
+            id: annotations.id,
+            taskId: annotations.taskId,
+            userId: annotations.userId,
+            taskerName: users.name,
+            result: annotations.result,
+            confidence: annotations.confidence,
+            status: annotations.status,
+            createdAt: annotations.createdAt,
+            taskContent: tasks.content,
+            projectId: tasks.projectId,
+            projectName: projects.name,
+            projectStatus: projects.status,
+          })
+          .from(annotations)
+          .leftJoin(tasks, eqOp(annotations.taskId, tasks.id))
+          .leftJoin(users, eqOp(annotations.userId, users.id))
+          .leftJoin(projects, eqOp(tasks.projectId, projects.id))
+          .where(whereClause);
+        return rows;
+      }),
+
+    // Get pending count per active project for the project cards
+    getProjectCounts: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const drizzleDb = await db.getDb();
+      if (!drizzleDb) return [];
+      const { eq: eqOp, count } = await import("drizzle-orm");
+      const allProjects = await db.getAllProjects();
+      const activeProjects = allProjects.filter(p => p.status === "active");
+      const counts = await Promise.all(
+        activeProjects.map(async (project) => {
+          const rows = await drizzleDb
+            .select({ c: count() })
+            .from(annotations)
+            .leftJoin(tasks, eqOp(annotations.taskId, tasks.id))
+            .where(
+              (await import("drizzle-orm")).and(
+                eqOp(annotations.status, "pending_review"),
+                eqOp(tasks.projectId, project.id)
+              )
+            );
+          return { ...project, pendingCount: Number(rows[0]?.c ?? 0) };
+        })
+      );
+      return counts;
+    }),
+
+    getStats: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return await db.getQAStats(ctx.user.id);
+    }),
+
+    approve: protectedProcedure
+      .input(z.object({ annotationId: z.number(), feedback: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        return await db.approveAnnotation(input.annotationId, ctx.user.id, input.feedback);
+      }),
+
+    reject: protectedProcedure
+      .input(z.object({ annotationId: z.number(), feedback: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "qa" && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        return await db.rejectAnnotation(input.annotationId, ctx.user.id, input.feedback);
+      }),
+  }),
+
   taskManagement: router({
     // Assign tasks to a user
-    assignTasks: adminProcedure
+    assignTasks: managerProcedure
       .input(z.object({ taskIds: z.array(z.number()), userId: z.number() }))
       .mutation(async ({ input }) => {
         try {
@@ -500,7 +602,7 @@ export const appRouter = router({
       }),
 
     // Get unassigned tasks for a project
-    getUnassigned: adminProcedure
+    getUnassigned: managerProcedure
       .input(z.object({ projectId: z.number(), limit: z.number().optional() }))
       .query(async ({ input }) => {
         return await db.getUnassignedTasks(input.projectId, input.limit ?? 50);
@@ -603,14 +705,91 @@ export const appRouter = router({
 
   // ── Admin stats ─────────────────────────────────────────────────────────────
   adminStats: router({
-    get: adminProcedure.query(async () => {
+    get: managerProcedure.query(async () => {
       return await db.getAdminStats();
+    }),
+  }),
+
+  // ── Manager QA Review feed ───────────────────────────────────────────────────
+  // Returns all annotations that QA has already approved or rejected,
+  // joined with project info, tasker name, and QA reviewer name.
+  // This is the final "what happened" feed shown to manager/admin.
+  managerReview: router({
+    getQADecisions: managerProcedure
+      .input(z.object({ projectId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return [];
+        const { eq: eqOp, or, and: andOp, ne } = await import("drizzle-orm");
+
+        const whereClause = input?.projectId
+          ? andOp(
+              or(eqOp(annotations.status, "approved"), eqOp(annotations.status, "rejected")),
+              eqOp(tasks.projectId, input.projectId)
+            )
+          : or(eqOp(annotations.status, "approved"), eqOp(annotations.status, "rejected"));
+
+        const rows = await drizzleDb
+          .select({
+            annotationId:   annotations.id,
+            taskId:         annotations.taskId,
+            taskContent:    tasks.content,
+            result:         annotations.result,
+            annotationStatus: annotations.status,
+            projectId:      tasks.projectId,
+            projectName:    projects.name,
+            projectStatus:  projects.status,
+            taskerName:     users.name,
+            taskerId:       annotations.userId,
+            qaReviewId:     qaReviews.id,
+            qaStatus:       qaReviews.status,
+            qaFeedback:     qaReviews.feedback,
+            qaReviewedAt:   qaReviews.createdAt,
+          })
+          .from(annotations)
+          .leftJoin(tasks,      eqOp(annotations.taskId,     tasks.id))
+          .leftJoin(users,      eqOp(annotations.userId,     users.id))
+          .leftJoin(projects,   eqOp(tasks.projectId,        projects.id))
+          .leftJoin(qaReviews,  eqOp(qaReviews.annotationId, annotations.id))
+          .where(whereClause)
+          .orderBy(qaReviews.createdAt);
+
+        // Attach QA reviewer names separately
+        const reviewerIds = [...new Set(rows.map(r => (r as any).qaReviews?.reviewerId).filter(Boolean))];
+        return rows;
+      }),
+
+    // Summary counts per project for the manager project cards
+    getProjectSummary: managerProcedure.query(async () => {
+      const drizzleDb = await db.getDb();
+      if (!drizzleDb) return [];
+      const { eq: eqOp, count, and: andOp, or } = await import("drizzle-orm");
+      const allProjects = await db.getAllProjects();
+
+      return Promise.all(
+        allProjects.map(async project => {
+          const [pending, approved, rejected] = await Promise.all([
+            drizzleDb.select({ c: count() }).from(annotations).leftJoin(tasks, eqOp(annotations.taskId, tasks.id))
+              .where(andOp(eqOp(tasks.projectId, project.id), eqOp(annotations.status, "pending_review"))),
+            drizzleDb.select({ c: count() }).from(annotations).leftJoin(tasks, eqOp(annotations.taskId, tasks.id))
+              .where(andOp(eqOp(tasks.projectId, project.id), eqOp(annotations.status, "approved"))),
+            drizzleDb.select({ c: count() }).from(annotations).leftJoin(tasks, eqOp(annotations.taskId, tasks.id))
+              .where(andOp(eqOp(tasks.projectId, project.id), eqOp(annotations.status, "rejected"))),
+          ]);
+          return {
+            ...project,
+            pendingCount:  Number(pending[0]?.c ?? 0),
+            approvedCount: Number(approved[0]?.c ?? 0),
+            rejectedCount: Number(rejected[0]?.c ?? 0),
+          };
+        })
+      );
     }),
   }),
 
   // ── Leaderboard ─────────────────────────────────────────────────────────────
   leaderboard: router({
-    get: adminProcedure.query(async () => {
+    get: managerProcedure.query(async () => {
       return await db.getLeaderboard();
     }),
   }),

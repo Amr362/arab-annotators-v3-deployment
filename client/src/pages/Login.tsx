@@ -51,6 +51,7 @@ export default function Login() {
     if (user.role === "admin") targetPath = "/admin";
     else if (user.role === "tasker") targetPath = "/tasker/tasks";
     else if (user.role === "qa") targetPath = "/qa/queue";
+    else if (user.role === "manager") targetPath = "/manager";
     
     // Only redirect if we are not already at the target path
     if (currentPath !== targetPath && (currentPath === "/" || currentPath === "/login")) {
