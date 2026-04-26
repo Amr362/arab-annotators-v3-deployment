@@ -12,4 +12,8 @@ export default defineConfig({
   dbCredentials: {
     url: connectionString,
   },
+  // Exclude system extension schemas from introspection to avoid conflicts
+  // with extensions like pg_stat_statements that own views/functions.
+  extensionsFilters: ["postgis"],
+  schemaFilter: ["public"],
 });
