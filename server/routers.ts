@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
+import { publicProcedure, router, protectedProcedure, adminProcedure, managerProcedure } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, isNull, ne } from "drizzle-orm";
@@ -32,22 +32,22 @@ export const appRouter = router({
   // Admin procedures for user management
   admin: router({
     // Get all users
-    getAllUsers: adminProcedure.query(async () => {
+    getAllUsers: managerProcedure.query(async () => {
       return await db.getAllUsers();
     }),
 
     // Get user by ID
-    getUser: adminProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    getUser: managerProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
       return await db.getUserById(input.id);
     }),
 
     // Create new user (local, not OAuth) — server generates openId
-    createUser: adminProcedure
+    createUser: managerProcedure
       .input(
         z.object({
           name: z.string().min(1),
           email: z.string().email(),
-          role: z.enum(["admin", "tasker", "qa", "user"]),
+          role: z.enum(["admin", "manager", "tasker", "qa", "user"]),
           password: z.string().min(6),
         })
       )
@@ -83,7 +83,7 @@ export const appRouter = router({
       }),
 
     // Bulk create users
-    bulkCreateUsers: adminProcedure
+    bulkCreateUsers: managerProcedure
       .input(z.object({
         count: z.number().min(1).max(50),
         role: z.enum(["tasker", "qa"]),
@@ -120,13 +120,13 @@ export const appRouter = router({
       }),
 
     // Update user — proper undefined checks so empty strings are accepted
-    updateUser: adminProcedure
+    updateUser: managerProcedure
       .input(
         z.object({
           id: z.number(),
           name: z.string().min(1).optional(),
           email: z.string().email().optional(),
-          role: z.enum(["admin", "tasker", "qa", "user"]).optional(),
+          role: z.enum(["admin", "manager", "tasker", "qa", "user"]).optional(),
           isActive: z.boolean().optional(),
         })
       )
@@ -149,7 +149,7 @@ export const appRouter = router({
       }),
 
     // Delete user
-    deleteUser: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    deleteUser: managerProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       const drizzleDb = await db.getDb();
       if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -499,7 +499,7 @@ export const appRouter = router({
 
   taskManagement: router({
     // Assign tasks to a user
-    assignTasks: adminProcedure
+    assignTasks: managerProcedure
       .input(z.object({ taskIds: z.array(z.number()), userId: z.number() }))
       .mutation(async ({ input }) => {
         try {
@@ -510,7 +510,7 @@ export const appRouter = router({
       }),
 
     // Get unassigned tasks for a project
-    getUnassigned: adminProcedure
+    getUnassigned: managerProcedure
       .input(z.object({ projectId: z.number(), limit: z.number().optional() }))
       .query(async ({ input }) => {
         return await db.getUnassignedTasks(input.projectId, input.limit ?? 50);
@@ -613,14 +613,14 @@ export const appRouter = router({
 
   // ── Admin stats ─────────────────────────────────────────────────────────────
   adminStats: router({
-    get: adminProcedure.query(async () => {
+    get: managerProcedure.query(async () => {
       return await db.getAdminStats();
     }),
   }),
 
   // ── Leaderboard ─────────────────────────────────────────────────────────────
   leaderboard: router({
-    get: adminProcedure.query(async () => {
+    get: managerProcedure.query(async () => {
       return await db.getLeaderboard();
     }),
   }),

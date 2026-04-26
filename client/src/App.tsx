@@ -12,6 +12,7 @@ import TaskerDashboard from "./pages/TaskerDashboard";
 import QADashboard from "./pages/QADashboard";
 import IAADashboard from "./pages/IAADashboard";
 import InterfaceBuilder from "./pages/InterfaceBuilder";
+import ManagerDashboard from "./pages/ManagerDashboard";
 
 function Router() {
   return (
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/tasker/tasks" component={TaskerDashboard} />
       <Route path="/qa/queue" component={QADashboard} />
       <Route path="/iaa" component={IAADashboard} />
+      <Route path="/manager" component={ManagerDashboard} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
