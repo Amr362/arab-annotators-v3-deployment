@@ -5,48 +5,6 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1773584466804,
-      "tag": "0000_tense_jamie_braddock",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1773584841307,
-      "tag": "0001_modern_wolf_cub",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1773600000000,
-      "tag": "0002_add_password_hash",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1773610000000,
-      "tag": "0003_annotation_features",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1773620000000,
-      "tag": "0004_ai_features",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1773630000000,
-      "tag": "0005_remove_unique_constraint",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
       "when": 1773640000000,
       "tag": "0006_postgresql_baseline",
       "breakpoints": true
