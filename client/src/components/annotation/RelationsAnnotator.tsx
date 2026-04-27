@@ -125,49 +125,53 @@ export default function RelationsAnnotator({ text, entityLabels, relationLabels,
 
   return (
     <div className="space-y-4">
-      {/* Mode switcher */}
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-medium text-slate-500">الوضع:</span>
-        {(["entity", "relation"] as const).map(m => (
-          <button
-            key={m}
-            onClick={() => { setMode(m); setRelFrom(null); }}
-            className={cn(
-              "px-4 py-1.5 rounded-xl text-sm font-medium transition-all border-2",
-              mode === m ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
-            )}
-          >
-            {m === "entity" ? "🏷️ إضافة كيان" : "🔗 إضافة علاقة"}
-          </button>
-        ))}
-      </div>
+      {!readOnly && (
+        <>
+          {/* Mode switcher */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-medium text-slate-500">الوضع:</span>
+            {(["entity", "relation"] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => { setMode(m); setRelFrom(null); }}
+                className={cn(
+                  "px-4 py-1.5 rounded-xl text-sm font-medium transition-all border-2",
+                  mode === m ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                )}
+              >
+                {m === "entity" ? "🏷️ إضافة كيان" : "🔗 إضافة علاقة"}
+              </button>
+            ))}
+          </div>
 
-      {/* Label selectors */}
-      {mode === "entity" ? (
-        <div className="flex flex-wrap gap-2">
-          {entityLabels.map(label => (
-            <button key={label.value} onClick={() => setActiveEntityLabel(label)}
-              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-all",
-                activeEntityLabel?.value === label.value ? "text-white" : "bg-white text-slate-700")}
-              style={activeEntityLabel?.value === label.value ? { backgroundColor: label.color, borderColor: label.color } : { borderColor: label.color }}>
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: label.color }} />{label.value}
-              {label.shortcut && <span className="text-[10px] opacity-60">[{label.shortcut}]</span>}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-xs text-slate-500">نوع العلاقة:</span>
-          {relationLabels.map(label => (
-            <button key={label.value} onClick={() => setActiveRelLabel(label)}
-              className={cn("px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-all",
-                activeRelLabel?.value === label.value ? "text-white" : "bg-white text-slate-700")}
-              style={activeRelLabel?.value === label.value ? { backgroundColor: label.color, borderColor: label.color } : { borderColor: label.color }}>
-              {label.value}
-            </button>
-          ))}
-          {relFrom && <span className="text-xs text-amber-600 animate-pulse">انقر على كيان آخر للربط...</span>}
-        </div>
+          {/* Label selectors */}
+          {mode === "entity" ? (
+            <div className="flex flex-wrap gap-2">
+              {entityLabels.map(label => (
+                <button key={label.value} onClick={() => setActiveEntityLabel(label)}
+                  className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-all",
+                    activeEntityLabel?.value === label.value ? "text-white" : "bg-white text-slate-700")}
+                  style={activeEntityLabel?.value === label.value ? { backgroundColor: label.color, borderColor: label.color } : { borderColor: label.color }}>
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: label.color }} />{label.value}
+                  {label.shortcut && <span className="text-[10px] opacity-60">[{label.shortcut}]</span>}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-xs text-slate-500">نوع العلاقة:</span>
+              {relationLabels.map(label => (
+                <button key={label.value} onClick={() => setActiveRelLabel(label)}
+                  className={cn("px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-all",
+                    activeRelLabel?.value === label.value ? "text-white" : "bg-white text-slate-700")}
+                  style={activeRelLabel?.value === label.value ? { backgroundColor: label.color, borderColor: label.color } : { borderColor: label.color }}>
+                  {label.value}
+                </button>
+              ))}
+              {relFrom && <span className="text-xs text-amber-600 animate-pulse">انقر على كيان آخر للربط...</span>}
+            </div>
+          )}
+        </>
       )}
 
       {/* Text */}

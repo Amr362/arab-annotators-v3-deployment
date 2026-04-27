@@ -31,6 +31,7 @@ const TABS = [
   { id: "overview",    label: "📊 نظرة عامة"   },
   { id: "users",       label: "👥 المستخدمون"  },
   { id: "assign",      label: "🎯 تعيين المهام" },
+  { id: "qa_projects", label: "🔍 مراجعة الجودة" },
   { id: "leaderboard", label: "🏆 المتصدرون"   },
   { id: "export",      label: "📤 تصدير"       },
 ] as const;

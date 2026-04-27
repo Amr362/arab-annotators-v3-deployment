@@ -52,6 +52,7 @@ export default function PairwiseComparison({ text, labels, value, onChange, read
       <div className="flex flex-wrap gap-3 justify-center pt-2">
         {labels.map(label => {
           const isSelected = value === label.value;
+          if (readOnly && !isSelected) return null; // Only show selected choice in readOnly mode
           return (
             <button
               key={label.value}
@@ -65,7 +66,7 @@ export default function PairwiseComparison({ text, labels, value, onChange, read
               style={isSelected ? { backgroundColor: label.color, borderColor: label.color } : { borderColor: label.color + "50" }}
             >
               {label.value}
-              {label.shortcut && (
+              {!readOnly && label.shortcut && (
                 <span className={cn("text-xs px-1.5 py-0.5 rounded font-mono border", isSelected ? "bg-white/20 border-white/30 text-white" : "bg-slate-100 border-slate-200 text-slate-400")}>
                   {label.shortcut}
                 </span>

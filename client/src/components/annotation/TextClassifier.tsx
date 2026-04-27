@@ -55,6 +55,7 @@ export default function TextClassifier({ text, labels, value, onChange, aiSugges
       <div className="flex flex-wrap gap-3 justify-center">
         {labels.map((label, i) => {
           const isSelected = value === label.value;
+          if (readOnly && !isSelected) return null; // Only show selected label in readOnly mode
           return (
             <button
               key={label.value}
@@ -65,14 +66,14 @@ export default function TextClassifier({ text, labels, value, onChange, aiSugges
                 isSelected
                   ? "text-white shadow-lg scale-105"
                   : "bg-white text-slate-700 hover:scale-105 hover:shadow-md",
-                readOnly && "cursor-default opacity-75"
+                readOnly && "cursor-default"
               )}
               style={isSelected ? { backgroundColor: label.color, borderColor: label.color } : { borderColor: label.color + "40" }}
             >
               {/* Color dot */}
               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: label.color }} />
               <span>{label.value}</span>
-              {label.shortcut && (
+              {!readOnly && label.shortcut && (
                 <span className={cn(
                   "text-xs px-1.5 py-0.5 rounded-md font-mono border",
                   isSelected ? "bg-white/20 border-white/30 text-white" : "bg-slate-100 border-slate-200 text-slate-400"

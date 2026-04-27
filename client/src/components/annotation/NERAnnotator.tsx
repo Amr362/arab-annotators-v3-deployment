@@ -105,26 +105,28 @@ export default function NERAnnotator({ text, labels, value, onChange, readOnly }
 
   return (
     <div className="space-y-4">
-      {/* Label selector */}
-      <div className="flex flex-wrap gap-2 items-center">
-        <span className="text-xs text-slate-500 font-medium">اختر تصنيف ثم حدد النص:</span>
-        {labels.map(label => (
-          <button
-            key={label.value}
-            disabled={readOnly}
-            onClick={() => setActiveLabel(label)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-all",
-              activeLabel?.value === label.value ? "text-white shadow-md scale-105" : "bg-white text-slate-700 hover:shadow-sm"
-            )}
-            style={activeLabel?.value === label.value ? { backgroundColor: label.color, borderColor: label.color } : { borderColor: label.color }}
-          >
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: label.color }} />
-            {label.value}
-            {label.shortcut && <span className="text-[10px] opacity-60 font-mono">[{label.shortcut}]</span>}
-          </button>
-        ))}
-      </div>
+      {/* Label selector - Only show if not readOnly */}
+      {!readOnly && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-xs text-slate-500 font-medium">اختر تصنيف ثم حدد النص:</span>
+          {labels.map(label => (
+            <button
+              key={label.value}
+              disabled={readOnly}
+              onClick={() => setActiveLabel(label)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-all",
+                activeLabel?.value === label.value ? "text-white shadow-md scale-105" : "bg-white text-slate-700 hover:shadow-sm"
+              )}
+              style={activeLabel?.value === label.value ? { backgroundColor: label.color, borderColor: label.color } : { borderColor: label.color }}
+            >
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: label.color }} />
+              {label.value}
+              {label.shortcut && <span className="text-[10px] opacity-60 font-mono">[{label.shortcut}]</span>}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Annotatable text */}
       <div

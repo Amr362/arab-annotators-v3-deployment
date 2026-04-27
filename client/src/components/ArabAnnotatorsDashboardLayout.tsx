@@ -58,16 +58,20 @@ export default function ArabAnnotatorsDashboardLayout({ children, title }: Dashb
   const isQA = user.role === "qa";
 
   const navigationItems = [
-    isAdmin && { label: "لوحة التحكم",   icon: BarChart3,    href: "/admin" },
-    isAdmin && { label: "المستخدمون",    icon: Users,        href: "/admin/users" },
-    isAdmin && { label: "المشاريع",      icon: FileText,     href: "/admin/projects" },
+    // Admin Items
+    isAdmin && { label: "نظرة عامة",     icon: BarChart3,    href: "/admin" },
+    isAdmin && { label: "إدارة المستخدمين", icon: Users,        href: "/admin/users" },
+    isAdmin && { label: "إدارة المشاريع",   icon: FileText,     href: "/admin/projects" },
     isAdmin && { label: "منشئ الواجهات", icon: Code2,        href: "/admin/interface" },
-    isAdmin && { label: "مقاييس IAA",    icon: TrendingUp,   href: "/iaa" },
-    isTasker && { label: "التوسيم",      icon: FileText,     href: "/tasker/tasks" },
-    isTasker && { label: "إحصائياتي",    icon: BarChart3,    href: "/tasker/stats" },
-    isQA    && { label: "قائمة المراجعة",icon: CheckCircle2, href: "/qa/queue" },
-    isQA    && { label: "إحصائياتي",     icon: BarChart3,    href: "/qa/stats" },
-    isQA    && { label: "مقاييس IAA",    icon: TrendingUp,   href: "/iaa" },
+    
+    // Tasker Items
+    (isTasker || isAdmin) && { label: "مهام التوسيم", icon: FileText,     href: "/tasker/tasks" },
+    
+    // QA Items
+    (isQA || isAdmin) && { label: "مراجعة الجودة", icon: CheckCircle2, href: "/qa/queue" },
+    
+    // Shared Analytics
+    (isQA || isAdmin) && { label: "مقاييس IAA",    icon: TrendingUp,   href: "/iaa" },
   ].filter(Boolean) as Array<{ label: string; icon: any; href: string }>;
 
   function notifTypeIcon(type: string) {

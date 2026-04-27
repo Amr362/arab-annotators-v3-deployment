@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 const statusLabel: Record<string, string> = {
   pending: "جديدة", in_progress: "قيد العمل", submitted: "مُسلَّمة",
-  approved: "مقبولة", rejected: "مرفوضة",
+  approved: "مقبولة ✅", rejected: "مرفوضة ❌",
 };
 const statusColor: Record<string, { bg: string; text: string; dot: string }> = {
   pending:     { bg: "bg-slate-100",   text: "text-slate-600",   dot: "bg-slate-400"   },

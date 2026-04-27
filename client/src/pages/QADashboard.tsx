@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
 import { AlertCircle, CheckCircle2, XCircle, TrendingUp, MessageSquare, Keyboard, Bot, ShieldAlert, User, Folder, Activity } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import AnnotationWidget from "@/components/annotation/AnnotationWidget";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
@@ -318,8 +319,18 @@ export default function QADashboard() {
                           {item.taskContent || "محتوى المهمة غير متوفر (قد تكون المهمة قد حذفت)"}
                         </p>
                         {item.result && (
-                          <div className="bg-slate-100 rounded p-2 text-xs font-mono text-slate-600 line-clamp-2">
-                            {JSON.stringify(item.result).slice(0, 150)}
+                          <div className="mt-2 border rounded-xl p-4 bg-white">
+                            <AnnotationWidget
+                              config={{
+                                type: item.annotationType as any || "classification",
+                                labels: (item.labelsConfig as any)?.labels || [],
+                                instructions: ""
+                              }}
+                              content={item.taskContent || ""}
+                              value={item.result as any}
+                              onChange={() => {}}
+                              readOnly={true}
+                            />
                           </div>
                         )}
                         {/* AI Review & Spam badges */}

@@ -60,6 +60,7 @@ export default function MultiLabelClassifier({ text, labels, value, onChange, ai
       <div className="flex flex-wrap gap-3 justify-center">
         {labels.map(label => {
           const isSelected = value.includes(label.value);
+          if (readOnly && !isSelected) return null; // Only show selected labels in readOnly mode
           return (
             <button
               key={label.value}
@@ -80,7 +81,7 @@ export default function MultiLabelClassifier({ text, labels, value, onChange, ai
               </span>
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: label.color }} />
               <span>{label.value}</span>
-              {label.shortcut && (
+              {!readOnly && label.shortcut && (
                 <span className={cn("text-xs px-1.5 py-0.5 rounded font-mono border", isSelected ? "bg-white/20 border-white/30 text-white" : "bg-slate-100 border-slate-200 text-slate-400")}>
                   {label.shortcut}
                 </span>
