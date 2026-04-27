@@ -39,10 +39,9 @@ export async function getDb() {
     console.log("[Database] Connection established successfully");
     return _db;
   } catch (error) {
-    console.error("[Database] Failed to connect to database:", error);
-    _db = null;
-    _pool = null;
-    return null;
+    console.error("[Database] Connection test failed, but returning instance anyway:", error);
+    // Even if test fails, return _db to allow potential recovery or better error reporting elsewhere
+    return _db;
   }
 }
 
