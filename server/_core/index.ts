@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import * as db from "../db";
+import { startAllWorkers } from "../workers/all";
 import { sdk } from "./sdk";
 import { ENV } from "./env";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
@@ -186,6 +187,9 @@ async function startServer() {
 
   // ── Startup tasks ─────────────────────────────────────────────────────────
   await runStartupTasks();
+
+  // ── Background workers (v4) ──────────────────────────────────────────────
+  startAllWorkers();
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);

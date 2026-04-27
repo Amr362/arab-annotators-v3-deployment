@@ -7,6 +7,12 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, isNull, ne } from "drizzle-orm";
 import * as db from "./db";
 import { users, projects, tasks, annotations, qaReviews, statistics, notifications, taskSkips } from "../drizzle/schema";
+import { assignNextTask, startTask, submitTask } from "./workers/distributionWorker";
+import { transition } from "./workers/stateMachine";
+import { processSubmittedTask } from "./workers/qaSamplingWorker";
+import { setHoneyPot } from "./workers/honeypotChecker";
+import { recomputeMetrics } from "./workers/statsWorker";
+import { computeIAAForProject } from "./workers/iaaWorker";
 
 // Helper to ensure admin role
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -414,54 +420,27 @@ export const appRouter = router({
       return await db.getTasksByAssignee(ctx.user.id);
     }),
 
-    // ── Queue-based: pull the next available task for the current user ──────────
-    // Best practice in annotation projects: taskers pull from a shared pool
-    // rather than waiting for manual admin assignment. This prevents hotspots,
-    // balances load automatically, and supports the minAnnotations > 1 workflow.
+    // ── v4: Queue-based task assignment via DistributionWorker ─────────────────
+    // Uses the TaskStateMachine and skill-level matching.
+    // Replaces the old inline implementation.
     getNextTask: protectedProcedure
       .input(z.object({ projectId: z.number().optional() }))
-      .mutation(async ({ ctx }) => {
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "tasker" && ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        return await assignNextTask(ctx.user.id, input.projectId);
+      }),
+
+    // ── v4: Mark task as IN_PROGRESS (worker opened it) ──────────────────────
+    startTask: protectedProcedure
+      .input(z.object({ taskId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "tasker" && ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
-        const drizzleDb = await db.getDb();
-        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-        // Find a pending task not already annotated by this user,
-        // preferring tasks already in_progress (resumable) by this user.
-        const { sql: sqlFn, ne: neOp, notInArray } = await import("drizzle-orm");
-
-        // Step 1: get task IDs the user already submitted (non-draft)
-        const doneRows = await drizzleDb
-          .select({ taskId: annotations.taskId })
-          .from(annotations)
-          .where(and(eq(annotations.userId, ctx.user.id), eq(annotations.isDraft, false)));
-        const doneIds = doneRows.map(r => r.taskId);
-
-        // Step 2: find next pending/in_progress task not in doneIds
-        const candidateQuery = drizzleDb
-          .select({ id: tasks.id, projectId: tasks.projectId, content: tasks.content, status: tasks.status })
-          .from(tasks)
-          .where(
-            doneIds.length
-              ? and(
-                  sqlFn`${tasks.status} IN ('pending', 'in_progress')`,
-                  notInArray(tasks.id, doneIds)
-                )
-              : sqlFn`${tasks.status} IN ('pending', 'in_progress')`
-          )
-          .limit(1);
-
-        const [nextTask] = await candidateQuery;
-        if (!nextTask) return null;
-
-        // Step 3: assign to user and mark in_progress
-        await drizzleDb
-          .update(tasks)
-          .set({ assignedTo: ctx.user.id, status: "in_progress", updatedAt: new Date() })
-          .where(eq(tasks.id, nextTask.id));
-
-        return nextTask;
+        await startTask(input.taskId, ctx.user.id);
+        return { success: true };
       }),
 
     getStats: protectedProcedure.query(async ({ ctx }) => {
@@ -471,19 +450,59 @@ export const appRouter = router({
       return await db.getTaskerStats(ctx.user.id);
     }),
 
-    // Submit annotation for a task
+    // Submit annotation for a task (v4: uses state machine + triggers QA sampling)
     submitAnnotation: protectedProcedure
       .input(z.object({
         taskId: z.number(),
         result: z.unknown(),
+        timeSpentSeconds: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "tasker" && ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
         try {
-          return await db.submitTaskAnnotation(input.taskId, ctx.user.id, input.result);
-        } catch (error) {
+          const drizzleDb = await db.getDb();
+          if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+          // Upsert the annotation (non-draft)
+          const existing = await drizzleDb
+            .select({ id: annotations.id })
+            .from(annotations)
+            .where(and(eq(annotations.taskId, input.taskId), eq(annotations.userId, ctx.user.id)))
+            .limit(1);
+
+          if (existing.length) {
+            await drizzleDb.update(annotations).set({
+              result: input.result as any,
+              isDraft: false,
+              submittedAt: new Date(),
+              timeSpentSeconds: input.timeSpentSeconds ?? 0,
+              updatedAt: new Date(),
+            }).where(eq(annotations.id, existing[0].id));
+          } else {
+            await drizzleDb.insert(annotations).values({
+              taskId: input.taskId,
+              userId: ctx.user.id,
+              result: input.result as any,
+              isDraft: false,
+              submittedAt: new Date(),
+              timeSpentSeconds: input.timeSpentSeconds ?? 0,
+              status: "pending_review",
+            });
+          }
+
+          // Transition task: IN_PROGRESS → SUBMITTED via state machine
+          await submitTask(input.taskId, ctx.user.id);
+
+          // Trigger QA sampling asynchronously (fire-and-forget)
+          processSubmittedTask(input.taskId).catch(e =>
+            console.error("[submitAnnotation] QA sampling error:", e)
+          );
+
+          return { success: true };
+        } catch (error: any) {
+          if (error?.code === "BAD_REQUEST") throw error;
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل في تسليم المهمة" });
         }
       }),
@@ -991,6 +1010,246 @@ export const appRouter = router({
           console.error("[AI] Spam check error:", e);
           return null;
         }
+      }),
+  }),
+
+  // ── v4: Worker Metrics ────────────────────────────────────────────────────
+  workerMetrics: router({
+    getForProject: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return [];
+        const { workerMetrics: wm } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        return drizzleDb
+          .select()
+          .from(wm)
+          .where(eqOp(wm.projectId, input.projectId));
+      }),
+
+    getForWorker: protectedProcedure.query(async ({ ctx }) => {
+      const drizzleDb = await db.getDb();
+      if (!drizzleDb) return [];
+      const { workerMetrics: wm } = await import("../drizzle/schema");
+      const { eq: eqOp } = await import("drizzle-orm");
+      return drizzleDb
+        .select()
+        .from(wm)
+        .where(eqOp(wm.userId, ctx.user.id));
+    }),
+
+    triggerRecompute: protectedProcedure.mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      await recomputeMetrics();
+      return { success: true };
+    }),
+  }),
+
+  // ── v4: IAA Scores ────────────────────────────────────────────────────────
+  iaa: router({
+    getForProject: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return [];
+        const { iaaScores } = await import("../drizzle/schema");
+        const { eq: eqOp, desc: descOp } = await import("drizzle-orm");
+        return drizzleDb
+          .select()
+          .from(iaaScores)
+          .where(eqOp(iaaScores.projectId, input.projectId))
+          .orderBy(descOp(iaaScores.computedAt));
+      }),
+
+    triggerCompute: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await computeIAAForProject(input.projectId);
+        return { success: true };
+      }),
+  }),
+
+  // ── v4: Honey Pot management ──────────────────────────────────────────────
+  honeyPot: router({
+    setTask: protectedProcedure
+      .input(z.object({ taskId: z.number(), answer: z.unknown() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await setHoneyPot(input.taskId, input.answer);
+        return { success: true };
+      }),
+  }),
+
+  // ── v4: Batches ───────────────────────────────────────────────────────────
+  batches: router({
+    create: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        name: z.string().min(1),
+        honeyPotRate: z.number().min(0).max(1).default(0.05),
+        qaRate: z.number().min(0).max(1).default(0.20),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const { batches } = await import("../drizzle/schema");
+        const [batch] = await drizzleDb.insert(batches).values({
+          projectId: input.projectId,
+          name: input.name,
+          honeyPotRate: input.honeyPotRate.toFixed(2),
+          qaRate: input.qaRate.toFixed(2),
+          createdBy: ctx.user.id,
+        }).returning();
+        return batch;
+      }),
+
+    getForProject: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return [];
+        const { batches } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        return drizzleDb.select().from(batches).where(eqOp(batches.projectId, input.projectId));
+      }),
+  }),
+
+  // ── v4: Project Assignments (manager-driven team management) ─────────────
+  projectAssignments: router({
+    assign: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        userId: z.number(),
+        role: z.enum(["tasker", "qa", "manager"]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const { projectAssignments } = await import("../drizzle/schema");
+        await drizzleDb.insert(projectAssignments).values({
+          projectId: input.projectId,
+          userId: input.userId,
+          role: input.role,
+        }).onConflictDoUpdate({
+          target: [projectAssignments.projectId, projectAssignments.userId],
+          set: { role: input.role, isActive: true },
+        });
+        return { success: true };
+      }),
+
+    getForProject: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) return [];
+        const { projectAssignments } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        return drizzleDb
+          .select()
+          .from(projectAssignments)
+          .where(eqOp(projectAssignments.projectId, input.projectId));
+      }),
+
+    remove: protectedProcedure
+      .input(z.object({ projectId: z.number(), userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const { projectAssignments } = await import("../drizzle/schema");
+        const { and: andOp, eq: eqOp } = await import("drizzle-orm");
+        await drizzleDb.delete(projectAssignments).where(
+          andOp(
+            eqOp(projectAssignments.projectId, input.projectId),
+            eqOp(projectAssignments.userId, input.userId)
+          )
+        );
+        return { success: true };
+      }),
+  }),
+
+  // ── v4: QA transitions (manager/QA) ─────────────────────────────────────
+  qaActions: router({
+    approve: protectedProcedure
+      .input(z.object({ taskId: z.number(), annotationId: z.number(), feedback: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "qa" && ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        await transition({ taskId: input.taskId, to: "APPROVED", actorId: ctx.user.id, reason: "QA approved" });
+
+        await drizzleDb.update(annotations)
+          .set({ status: "approved", updatedAt: new Date() })
+          .where(eq(annotations.id, input.annotationId));
+
+        await drizzleDb.insert(qaReviews).values({
+          annotationId: input.annotationId,
+          reviewerId: ctx.user.id,
+          status: "approved",
+          feedback: input.feedback ?? "✓ مقبول",
+        });
+
+        return { success: true };
+      }),
+
+    reject: protectedProcedure
+      .input(z.object({
+        taskId: z.number(),
+        annotationId: z.number(),
+        feedback: z.string().min(1, "يجب إضافة ملاحظة عند الرفض"),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "qa" && ctx.user.role !== "admin" && ctx.user.role !== "manager") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        const drizzleDb = await db.getDb();
+        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        // REJECTED → ASSIGNED (task re-enters pool)
+        await transition({ taskId: input.taskId, to: "REJECTED", actorId: ctx.user.id, reason: input.feedback });
+        await transition({ taskId: input.taskId, to: "ASSIGNED", actorId: ctx.user.id, reason: "re-queued after rejection" });
+
+        await drizzleDb.update(annotations)
+          .set({ status: "rejected", updatedAt: new Date() })
+          .where(eq(annotations.id, input.annotationId));
+
+        await drizzleDb.insert(qaReviews).values({
+          annotationId: input.annotationId,
+          reviewerId: ctx.user.id,
+          status: "rejected",
+          feedback: input.feedback,
+        });
+
+        return { success: true };
       }),
   }),
 });
