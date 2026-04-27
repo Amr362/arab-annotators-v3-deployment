@@ -5,21 +5,45 @@ import { InsertUser, users, projects, tasks, annotations, qaReviews, statistics,
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: pg.Pool | null = null;
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
-  if (!_db && ENV.databaseUrl) {
-    try {
-      const pool = new pg.Pool({
-        connectionString: ENV.databaseUrl,
-      });
-      _db = drizzle(pool);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
+  if (_db) return _db;
+  
+  if (!ENV.databaseUrl) {
+    console.error("[Database] DATABASE_URL is missing in environment variables");
+    return null;
   }
-  return _db;
+
+  try {
+    if (!_pool) {
+      console.log("[Database] Initializing connection pool...");
+      _pool = new pg.Pool({
+        connectionString: ENV.databaseUrl,
+        max: 20, 
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000, 
+      });
+
+      _pool.on('error', (err) => {
+        console.error('[Database] Unexpected error on idle client', err);
+        _db = null;
+        _pool = null;
+      });
+    }
+
+    _db = drizzle(_pool);
+    // Simple test query to verify connection
+    await _pool.query('SELECT 1');
+    console.log("[Database] Connection established successfully");
+    return _db;
+  } catch (error) {
+    console.error("[Database] Failed to connect to database:", error);
+    _db = null;
+    _pool = null;
+    return null;
+  }
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
