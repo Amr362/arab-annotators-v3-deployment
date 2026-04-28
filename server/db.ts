@@ -10,25 +10,28 @@ let _pool: pg.Pool | null = null;
 export async function getDb() {
   if (_db) return _db;
   
+  // Force reading from process.env to ensure Railway variables are used over local .env files
   const dbUrl = process.env.DATABASE_URL || ENV.databaseUrl;
 
   if (!dbUrl) {
-    console.error("[Database] CRITICAL: DATABASE_URL is empty!");
+    console.error("[Database] CRITICAL: DATABASE_URL is missing!");
     return null;
   }
 
   try {
     if (!_pool) {
-      // Log connection attempt details (safe parts only)
       const urlObj = new URL(dbUrl.startsWith('postgresql://') ? dbUrl : `postgresql://${dbUrl}`);
-      console.log(`[Database] Attempting connection to: ${urlObj.hostname}:${urlObj.port}${urlObj.pathname}`);
+      console.log(`[Database] Connecting to: ${urlObj.hostname}:${urlObj.port}`);
 
       _pool = new pg.Pool({
         connectionString: dbUrl,
         max: 10,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
-        ssl: { rejectUnauthorized: false }
+        connectionTimeoutMillis: 10000,
+        // Crucial for Railway: accept self-signed certificates
+        ssl: {
+          rejectUnauthorized: false
+        }
       });
 
       _pool.on('error', (err) => {
@@ -40,10 +43,15 @@ export async function getDb() {
 
     _db = drizzle(_pool);
     
-    // Background test
+    // Background connectivity test
     _pool.query('SELECT NOW()')
       .then((res) => console.log("[Database] Online! Server time:", res.rows[0].now))
-      .catch(err => console.error("[Database] Connectivity Check Failed:", err.message));
+      .catch(err => {
+        console.error("[Database] Connectivity Check Failed:", err.message);
+        if (err.message.includes('self-signed certificate')) {
+          console.error("[Database] SSL Error: The server rejected the self-signed certificate. Ensure rejectUnauthorized is false.");
+        }
+      });
 
     return _db;
   } catch (error: any) {
@@ -55,10 +63,7 @@ export async function getDb() {
 // Helper to wrap DB operations with consistent logging
 async function withDb<T>(op: (db: NonNullable<ReturnType<typeof drizzle>>) => Promise<T>, fallback: T, name: string): Promise<T> {
   const db = await getDb();
-  if (!db) {
-    console.warn(`[Database] ${name} skipped: No DB instance`);
-    return fallback;
-  }
+  if (!db) return fallback;
   try {
     return await op(db);
   } catch (error: any) {
@@ -168,7 +173,7 @@ export async function getTaskerStats(userId: number) {
     return {
       pendingCount,
       completedToday: Number(todayAnnotations[0]?.c ?? 0),
-      accuracy: 0, // Simplified for brevity
+      accuracy: 0,
       totalCompleted: completedCount,
       completedCount,
       totalCount: userTasks.length,
@@ -286,4 +291,48 @@ export async function getLLMSuggestions(taskId: number) {
 export async function saveLLMSuggestion(taskId: number, suggestion: any, provider: string) {
   const db = await getDb(); if (!db) return;
   await db.insert(llmSuggestions).values({ taskId, suggestion, provider }).catch(() => {});
+}
+
+// Added missing functions for auth and bootstrap
+import bcrypt from "bcryptjs";
+export async function hashPassword(password: string): Promise<string> {
+  return await bcrypt.hash(password, 10);
+}
+
+export async function verifyPassword(stored: string, supplied: string): Promise<boolean> {
+  if (stored.startsWith("$2")) {
+    return await bcrypt.compare(supplied, stored);
+  }
+  return false;
+}
+
+export async function getUserByIdentifier(identifier: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const lower = identifier.toLowerCase();
+  const byEmail = await db.select().from(users).where(eq(users.email, lower)).limit(1);
+  if (byEmail.length > 0) return byEmail[0];
+  const byName = await db.select().from(users).where(eq(users.name, identifier)).limit(1);
+  return byName.length > 0 ? byName[0] : undefined;
+}
+
+export async function bootstrapAdmin(opts: { name: string; email: string; password: string }) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(users).where(eq(users.role, "admin")).limit(1);
+  if (existing.length > 0) return;
+
+  const openId = `local_${Date.now()}`;
+  const passwordHash = await hashPassword(opts.password);
+
+  await db.insert(users).values({
+    openId,
+    name: opts.name,
+    email: opts.email.toLowerCase(),
+    role: "admin",
+    loginMethod: "local",
+    passwordHash,
+    isActive: true,
+  });
+  console.log(`[Bootstrap] Admin account created: ${opts.email}`);
 }
