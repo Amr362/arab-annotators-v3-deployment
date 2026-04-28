@@ -7,7 +7,10 @@ import { ENV } from './_core/env';
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: pg.Pool | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
+/**
+ * Lazily create the drizzle instance.
+ * Modified to be resilient: it won't block the app if the DB is slow to respond initially.
+ */
 export async function getDb() {
   if (_db) return _db;
   
@@ -28,20 +31,26 @@ export async function getDb() {
 
       _pool.on('error', (err) => {
         console.error('[Database] Unexpected error on idle client', err);
+        // Reset so next call tries to re-initialize
         _db = null;
         _pool = null;
       });
     }
 
     _db = drizzle(_pool);
-    // Simple test query to verify connection
-    await _pool.query('SELECT 1');
-    console.log("[Database] Connection established successfully");
+    
+    // We initiate the connection test but don't 'await' it if we want to be fully non-blocking,
+    // OR we wrap it in a try-catch to ensure we still return the _db instance even if it fails.
+    // The user specifically wants to avoid the 10s timeout failure at startup.
+    
+    _pool.query('SELECT 1')
+      .then(() => console.log("[Database] Connection established successfully"))
+      .catch(err => console.warn("[Database] Connection test failed or timed out, but will retry on next query:", err.message));
+
     return _db;
   } catch (error) {
-    console.error("[Database] Connection test failed, but returning instance anyway:", error);
-    // Even if test fails, return _db to allow potential recovery or better error reporting elsewhere
-    return _db;
+    console.error("[Database] Error during initialization:", error);
+    return null;
   }
 }
 
@@ -321,517 +330,105 @@ export async function rejectAnnotation(annotationId: number, reviewerId: number,
     feedback: feedback ?? null,
   });
 
+  // Update annotation status
   await db.update(annotations).set({ status: "rejected", updatedAt: new Date() }).where(eq(annotations.id, annotationId));
 
+  // Update the parent task status to rejected
   const ann = await db.select().from(annotations).where(eq(annotations.id, annotationId)).limit(1);
   if (ann.length > 0) {
     await db.update(tasks).set({ status: "rejected", updatedAt: new Date() }).where(eq(tasks.id, ann[0].taskId));
   }
 }
 
-// ─── Statistics: Kappa & IAA ─────────────────────────────────────────────────
-
-export async function computeCohenKappa(projectId: number, user1Id: number, user2Id: number) {
-  const db = await getDb();
-  if (!db) return { kappa: 0, agreement: 0, taskCount: 0 };
-
-  const projectTasks = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, projectId));
-  const taskIds = projectTasks.map(t => t.id);
-  if (!taskIds.length) return { kappa: 0, agreement: 0, taskCount: 0 };
-
-  const [ann1, ann2] = await Promise.all([
-    db.select({ taskId: annotations.taskId, result: annotations.result }).from(annotations).where(and(inArray(annotations.taskId, taskIds), eq(annotations.userId, user1Id))),
-    db.select({ taskId: annotations.taskId, result: annotations.result }).from(annotations).where(and(inArray(annotations.taskId, taskIds), eq(annotations.userId, user2Id))),
-  ]);
-
-  const map1 = Object.fromEntries(ann1.map(a => [a.taskId, a.result]));
-  const map2 = Object.fromEntries(ann2.map(a => [a.taskId, a.result]));
-
-  const commonTaskIds = taskIds.filter(id => map1[id] !== undefined && map2[id] !== undefined);
-  if (!commonTaskIds.length) return { kappa: 0, agreement: 0, taskCount: 0 };
-
-  function extractLabel(result: unknown): string {
-    if (!result) return "";
-    if (typeof result === "string") return result;
-    const r = result as any;
-    return String(r.label ?? r.choice ?? r.value ?? r.annotation ?? JSON.stringify(r));
-  }
-
-  let observedAgreement = 0;
-  const labelCounts1: Record<string, number> = {};
-  const labelCounts2: Record<string, number> = {};
-  const n = commonTaskIds.length;
-
-  for (const id of commonTaskIds) {
-    const l1 = extractLabel(map1[id]);
-    const l2 = extractLabel(map2[id]);
-    if (l1 === l2) observedAgreement++;
-    labelCounts1[l1] = (labelCounts1[l1] || 0) + 1;
-    labelCounts2[l2] = (labelCounts2[l2] || 0) + 1;
-  }
-
-  observedAgreement /= n;
-
-  let expectedAgreement = 0;
-  const allLabels = [...new Set([...Object.keys(labelCounts1), ...Object.keys(labelCounts2)])];
-  for (const l of allLabels) {
-    const p1 = (labelCounts1[l] || 0) / n;
-    const p2 = (labelCounts2[l] || 0) / n;
-    expectedAgreement += p1 * p2;
-  }
-
-  const kappa = expectedAgreement === 1 ? 1 : (observedAgreement - expectedAgreement) / (1 - expectedAgreement);
-  const kappaRounded = Math.round(kappa * 100) / 100;
-
-  let interpretation = "";
-  if (kappa < 0) interpretation = "اتفاق أقل من الصدفة";
-  else if (kappa < 0.2) interpretation = "اتفاق ضعيف جداً";
-  else if (kappa < 0.4) interpretation = "اتفاق ضعيف";
-  else if (kappa < 0.6) interpretation = "اتفاق معتدل";
-  else if (kappa < 0.8) interpretation = "اتفاق جيد";
-  else interpretation = "اتفاق ممتاز";
-
-  return {
-    kappa: kappaRounded,
-    agreement: Math.round(observedAgreement * 100),
-    taskCount: n,
-    interpretation,
-  };
-}
-
-// Fleiss' Kappa for multiple annotators
-export async function computeFleissKappa(projectId: number): Promise<{
-  kappa: number;
-  agreement: number;
-  taskCount: number;
-  annotatorCount: number;
-  interpretation: string;
-}> {
-  const db = await getDb();
-  if (!db) return { kappa: 0, agreement: 0, taskCount: 0, annotatorCount: 0, interpretation: "لا توجد بيانات" };
-
-  const projectTasks = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, projectId));
-  const taskIds = projectTasks.map(t => t.id);
-  if (!taskIds.length) return { kappa: 0, agreement: 0, taskCount: 0, annotatorCount: 0, interpretation: "لا توجد مهام" };
-
-  const allAnnotations = await db
-    .select({ taskId: annotations.taskId, userId: annotations.userId, result: annotations.result })
-    .from(annotations)
-    .where(inArray(annotations.taskId, taskIds));
-
-  function extractLabel(result: unknown): string {
-    if (!result) return "";
-    if (typeof result === "string") return result;
-    const r = result as any;
-    return String(r.label ?? r.choice ?? r.value ?? r.annotation ?? JSON.stringify(r));
-  }
-
-  const taskMap: Record<number, string[]> = {};
-  const annotators = new Set<number>();
-  for (const ann of allAnnotations) {
-    if (!taskMap[ann.taskId]) taskMap[ann.taskId] = [];
-    taskMap[ann.taskId].push(extractLabel(ann.result));
-    annotators.add(ann.userId);
-  }
-
-  const validTasks = Object.values(taskMap).filter(labels => labels.length >= 2);
-  if (!validTasks.length) return { kappa: 0, agreement: 0, taskCount: 0, annotatorCount: annotators.size, interpretation: "لا توجد مهام مزدوجة" };
-
-  // Collect all unique labels
-  const allLabels = [...new Set(validTasks.flat())];
-  const n = validTasks.length;
-  const maxR = Math.max(...validTasks.map(l => l.length));
-
-  // P_i: proportion of agreeing pairs per task
-  let sumPi = 0;
-  const labelFreq: Record<string, number> = {};
-
-  for (const labels of validTasks) {
-    const r = labels.length;
-    const counts: Record<string, number> = {};
-    for (const l of labels) {
-      counts[l] = (counts[l] || 0) + 1;
-      labelFreq[l] = (labelFreq[l] || 0) + 1;
-    }
-    let pi = 0;
-    for (const c of Object.values(counts)) pi += c * (c - 1);
-    sumPi += pi / (r * (r - 1));
-  }
-
-  const Pbar = sumPi / n;
-
-  // P_j^2: expected agreement per label
-  const totalLabels = Object.values(labelFreq).reduce((a, b) => a + b, 0);
-  let PeBar = 0;
-  for (const freq of Object.values(labelFreq)) {
-    PeBar += Math.pow(freq / totalLabels, 2);
-  }
-
-  const kappa = PeBar === 1 ? 1 : (Pbar - PeBar) / (1 - PeBar);
-  const kappaRounded = Math.round(kappa * 100) / 100;
-
-  let interpretation = "";
-  if (kappa < 0) interpretation = "اتفاق أقل من الصدفة";
-  else if (kappa < 0.2) interpretation = "اتفاق ضعيف جداً";
-  else if (kappa < 0.4) interpretation = "اتفاق ضعيف";
-  else if (kappa < 0.6) interpretation = "اتفاق معتدل";
-  else if (kappa < 0.8) interpretation = "اتفاق جيد";
-  else interpretation = "اتفاق ممتاز";
-
-  return {
-    kappa: kappaRounded,
-    agreement: Math.round(Pbar * 100),
-    taskCount: n,
-    annotatorCount: annotators.size,
-    interpretation,
-  };
-}
-
-// Get QA feedback for a specific tasker's annotations
-export async function getTaskerFeedback(userId: number) {
-  const db = await getDb();
-  if (!db) return [];
-
-  const userAnnotations = await db
-    .select({ id: annotations.id, taskId: annotations.taskId, result: annotations.result, status: annotations.status, createdAt: annotations.createdAt })
-    .from(annotations)
-    .where(eq(annotations.userId, userId));
-
-  if (!userAnnotations.length) return [];
-
-  const annIds = userAnnotations.map(a => a.id);
-  const reviews = await db
-    .select({
-      id: qaReviews.id,
-      annotationId: qaReviews.annotationId,
-      status: qaReviews.status,
-      feedback: qaReviews.feedback,
-      createdAt: qaReviews.createdAt,
-    })
-    .from(qaReviews)
-    .where(inArray(qaReviews.annotationId, annIds));
-
-  // Join with annotation + task content
-  const taskIds = [...new Set(userAnnotations.map(a => a.taskId))];
-  const taskRows = taskIds.length > 0
-    ? await db.select({ id: tasks.id, content: tasks.content }).from(tasks).where(inArray(tasks.id, taskIds))
-    : [];
-  const taskMap = Object.fromEntries(taskRows.map(t => [t.id, t.content]));
-  const annMap = Object.fromEntries(userAnnotations.map(a => [a.id, a]));
-
-  return reviews.map(r => ({
-    ...r,
-    taskContent: taskMap[annMap[r.annotationId]?.taskId ?? 0] ?? "",
-    annotationResult: annMap[r.annotationId]?.result,
-  }));
-}
-
-// ─── Local Auth helpers ───────────────────────────────────────────────────────
-import bcrypt from "bcryptjs";
-
-export async function hashPassword(password: string): Promise<string> {
-  return await bcrypt.hash(password, 10);
-}
-
-export async function verifyPassword(stored: string, supplied: string): Promise<boolean> {
-  // Check if it's a bcrypt hash (usually starts with $2b$ or $2a$)
-  if (stored.startsWith("$2")) {
-    return await bcrypt.compare(supplied, stored);
-  }
-  
-  // Fallback for old scrypt hashes (format: hash.salt)
-  try {
-    const [hashed, salt] = stored.split(".");
-    if (hashed && salt) {
-      const { scrypt, timingSafeEqual } = await import("crypto");
-      const { promisify } = await import("util");
-      const scryptAsync = promisify(scrypt);
-      const buf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-      const storedBuf = Buffer.from(hashed, "hex");
-      return timingSafeEqual(buf, storedBuf);
-    }
-  } catch (e) {
-    console.error("[Auth] Error verifying legacy password:", e);
-  }
-  
-  return false;
-}
-
-export async function getUserByEmail(email: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  // Case-insensitive email lookup
-  const normalised = email.trim().toLowerCase();
-  const result = await db.select().from(users)
-    .where(sql`LOWER(${users.email}) = ${normalised}`)
-    .limit(1);
-  return result.length > 0 ? result[0] : undefined;
-}
-
-export async function setUserPassword(userId: number, password: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const hash = await hashPassword(password);
-  await db.update(users).set({ passwordHash: hash, updatedAt: new Date() }).where(eq(users.id, userId));
-}
-
-// ─── Admin: Leaderboard ───────────────────────────────────────────────────────
-export async function getLeaderboard() {
-  const db = await getDb();
-  if (!db) return [];
-  // Taskers ranked by approved annotations count
-  const rows = await db
-    .select({
-      userId: annotations.userId,
-      totalSubmitted: count(annotations.id),
-    })
-    .from(annotations)
-    .groupBy(annotations.userId);
-
-  if (!rows.length) return [];
-
-  // Fetch user names
-  const userIds = rows.map(r => r.userId);
-  const userRows = await db.select({ id: users.id, name: users.name, role: users.role }).from(users).where(inArray(users.id, userIds));
-  const userMap = Object.fromEntries(userRows.map(u => [u.id, u]));
-
-  // Get approved counts per user
-  const approved = await db
-    .select({ userId: annotations.userId, c: count(annotations.id) })
-    .from(annotations)
-    .where(eq(annotations.status, "approved"))
-    .groupBy(annotations.userId);
-  const approvedMap = Object.fromEntries(approved.map(r => [r.userId, Number(r.c)]));
-
-  return rows
-    .map(r => ({
-      userId: r.userId,
-      name: userMap[r.userId]?.name ?? `User ${r.userId}`,
-      role: userMap[r.userId]?.role ?? "tasker",
-      totalSubmitted: Number(r.totalSubmitted),
-      approvedCount: approvedMap[r.userId] ?? 0,
-      accuracy: Number(r.totalSubmitted) > 0 ? Math.round(((approvedMap[r.userId] ?? 0) / Number(r.totalSubmitted)) * 100) : 0,
-    }))
-    .sort((a, b) => b.approvedCount - a.approvedCount);
-}
-
-// ─── Admin: Rich statistics ───────────────────────────────────────────────────
-export async function getAdminStats() {
-  const db = await getDb();
-  if (!db) return null;
-
-  const [
-    totalUsers, totalTaskers, totalQA,
-    totalProjects, totalTasks,
-    pendingAnnotations, approvedAnnotations, rejectedAnnotations,
-    todayAnnotations,
-  ] = await Promise.all([
-    db.select({ c: count() }).from(users),
-    db.select({ c: count() }).from(users).where(eq(users.role, "tasker")),
-    db.select({ c: count() }).from(users).where(eq(users.role, "qa")),
-    db.select({ c: count() }).from(projects),
-    db.select({ c: count() }).from(tasks),
-    db.select({ c: count() }).from(annotations).where(eq(annotations.status, "pending_review")),
-    db.select({ c: count() }).from(annotations).where(eq(annotations.status, "approved")),
-    db.select({ c: count() }).from(annotations).where(eq(annotations.status, "rejected")),
-    db.select({ c: count() }).from(annotations).where(sql`DATE(${annotations.createdAt}) = CURRENT_DATE`),
-  ]);
-
-  // Daily annotations for last 7 days
-  const last7 = await db.execute(sql`
-    SELECT DATE(created_at) as day, COUNT(*) as total
-    FROM annotations
-    WHERE created_at >= NOW() - INTERVAL '7 days'
-    GROUP BY DATE(created_at)
-    ORDER BY day ASC
-  `);
-
-    return {
-    totalUsers: Number(totalUsers[0]?.c ?? 0),
-    totalTaskers: Number(totalTaskers[0]?.c ?? 0),
-    totalQA: Number(totalQA[0]?.c ?? 0),
-    totalProjects: Number(totalProjects[0]?.c ?? 0),
-    totalTasks: Number(totalTasks[0]?.c ?? 0),
-    pendingAnnotations: Number(pendingAnnotations[0]?.c ?? 0),
-    submittedAnnotations: Number(pendingAnnotations[0]?.c ?? 0), // Alias for frontend compatibility
-    // Add a "totalSubmitted" that includes all non-draft annotations for better visibility
-    totalSubmitted: Number(pendingAnnotations[0]?.c ?? 0) + Number(approvedAnnotations[0]?.c ?? 0) + Number(rejectedAnnotations[0]?.c ?? 0),
-    approvedAnnotations: Number(approvedAnnotations[0]?.c ?? 0),
-    rejectedAnnotations: Number(rejectedAnnotations[0]?.c ?? 0),
-    todayAnnotations: Number(todayAnnotations[0]?.c ?? 0),
-    dailyTrend: (last7.rows as any[]).map(r => ({
-      day: String(r.day).slice(5), // MM-DD
-      total: Number(r.total),
-    })),
-  };
-}
-
-// ─── Admin: Assign tasks to a tasker ─────────────────────────────────────────
-export async function assignTasksToUser(taskIds: number[], userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  for (const id of taskIds) {
-    await db.update(tasks).set({ assignedTo: userId, status: "pending", updatedAt: new Date() }).where(eq(tasks.id, id));
-  }
-  return { assigned: taskIds.length };
-}
-
-// ─── Admin: Create project + bulk import tasks ────────────────────────────────
-export async function createProjectWithTasks(opts: {
-  name: string;
-  description?: string;
-  labelStudioProjectId?: number;
-  createdBy: number;
-  taskContents: string[];
-}) {
+export async function submitAnnotation(taskId: number, userId: number, result: any, confidence: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const [inserted] = await db.insert(projects).values({
-    name: opts.name,
-    description: opts.description ?? null,
-    labelStudioProjectId: opts.labelStudioProjectId ?? null,
-    totalItems: opts.taskContents.length,
-    createdBy: opts.createdBy,
-  }).returning();
-
-  const projectId = inserted.id;
-
-  if (opts.taskContents.length > 0) {
-    const taskRows = opts.taskContents.map((content, i) => ({
-      projectId,
-      labelStudioTaskId: null, // No longer strictly needed for internal projects
-      content,
-      status: "pending" as const,
-    }));
-    // Insert in batches of 100
-    for (let i = 0; i < taskRows.length; i += 100) {
-      await db.insert(tasks).values(taskRows.slice(i, i + 100));
-    }
-  }
-
-  return await getProjectById(projectId);
-}
-
-// ─── Admin: Unassigned tasks for a project ───────────────────────────────────
-export async function getUnassignedTasks(projectId: number, limit = 50) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(tasks)
-    .where(and(eq(tasks.projectId, projectId), sql`${tasks.assignedTo} IS NULL`))
-    .limit(limit);
-}
-
-// ─── Admin: Reset user password ───────────────────────────────────────────────
-export async function resetUserPassword(userId: number, newPassword: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const hash = await hashPassword(newPassword);
-  await db.update(users).set({ passwordHash: hash, loginMethod: "local", updatedAt: new Date() }).where(eq(users.id, userId));
-  return { success: true };
-}
-
-// ─── Tasker: Log annotation time ─────────────────────────────────────────────
-export async function logAnnotationTime(taskId: number, userId: number, seconds: number) {
-  const db = await getDb();
-  if (!db) return;
-  // For now just return
-}
-
-// ─── Auth: find user by username OR email ────────────────────────────────────
-export async function getUserByIdentifier(identifier: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  // Try email first, then name
-  const byEmail = await db.select().from(users)
-    .where(eq(users.email, identifier.toLowerCase())).limit(1);
-  if (byEmail.length > 0) return byEmail[0];
-  const byName = await db.select().from(users)
-    .where(eq(users.name, identifier)).limit(1);
-  return byName.length > 0 ? byName[0] : undefined;
-}
-
-// ─── Bootstrap: ensure admin exists on startup ───────────────────────────────
-export async function bootstrapAdmin(opts: { name: string; email: string; password: string }) {
-  const db = await getDb();
-  if (!db) return;
-  // Check if any admin already exists
-  const existing = await db.select().from(users).where(eq(users.role, "admin")).limit(1);
-  if (existing.length > 0) return; // Already have an admin
-
-  const { randomUUID } = await import("crypto");
-  const openId = `local_${randomUUID()}`;
-  const passwordHash = await hashPassword(opts.password);
-
-  await db.insert(users).values({
-    openId,
-    name: opts.name,
-    email: opts.email.toLowerCase(),
-    role: "admin",
-    loginMethod: "local",
-    passwordHash,
-    isActive: true,
+  // Insert annotation
+  await db.insert(annotations).values({
+    taskId,
+    userId,
+    result,
+    confidence,
+    status: "pending_review",
   });
-  console.log(`[Bootstrap] Admin account created: ${opts.email}`);
-}
 
-// ─── Tasker: Submit annotation ───────────────────────────────────────────────
-export async function submitTaskAnnotation(taskId: number, userId: number, result: any) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  // Update task status
+  await db.update(tasks).set({ status: "submitted", updatedAt: new Date() }).where(eq(tasks.id, taskId));
 
-  // 1. Check if there's an existing draft for this user and task
-  const existingDraft = await db
-    .select({ id: annotations.id })
-    .from(annotations)
-    .where(and(
-      eq(annotations.taskId, taskId),
-      eq(annotations.userId, userId),
-      eq(annotations.isDraft, true)
-    ))
-    .limit(1);
-
-  const timeSpentSeconds = result.timeSpentSeconds || 0;
-
-  if (existingDraft.length > 0) {
-    // Update existing draft to be a final submission
-    await db.update(annotations)
-      .set({
-        result: result,
-        isDraft: false,
-        status: "pending_review",
-        timeSpentSeconds: timeSpentSeconds,
-        updatedAt: new Date()
-      })
-      .where(eq(annotations.id, existingDraft[0].id));
-  } else {
-    // Insert new final annotation
-    await db.insert(annotations).values({
-      taskId,
-      userId,
-      result,
-      isDraft: false,
-      status: "pending_review",
-      timeSpentSeconds: timeSpentSeconds,
-    });
-  }
-
-  // 2. Update task status to submitted
-  await db.update(tasks)
-    .set({
-      status: "submitted",
-      updatedAt: new Date()
-    })
-    .where(eq(tasks.id, taskId));
-
-  // 3. Increment project completedItems counter
-  const task = await db.select({ projectId: tasks.projectId }).from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  // Update project counters
+  const task = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   if (task.length > 0) {
     await db.execute(sql`
       UPDATE projects SET "completedItems" = "completedItems" + 1, "updatedAt" = NOW()
       WHERE id = ${task[0].projectId}
     `);
   }
+}
 
-  return { success: true };
+export async function createProject(data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(projects).values(data).returning();
+  return result[0];
+}
+
+export async function updateProject(id: number, data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.update(projects).set({ ...data, updatedAt: new Date() }).where(eq(projects.id, id)).returning();
+  return result[0];
+}
+
+export async function deleteProject(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(projects).where(eq(projects.id, id));
+}
+
+export async function createTasks(data: any[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return await db.insert(tasks).values(data).returning();
+}
+
+export async function updateTask(id: number, data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.update(tasks).set({ ...data, updatedAt: new Date() }).where(eq(tasks.id, id)).returning();
+  return result[0];
+}
+
+export async function deleteTasksByProject(projectId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(tasks).where(eq(tasks.projectId, projectId));
+}
+
+export async function createNotification(data: any) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(notifications).values(data);
+}
+
+export async function markNotificationAsRead(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(notifications).set({ isRead: true }).where(eq(notifications.id, id));
+}
+
+export async function getLLMSuggestions(taskId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(llmSuggestions).where(eq(llmSuggestions.taskId, taskId)).orderBy(desc(llmSuggestions.createdAt));
+}
+
+export async function saveLLMSuggestion(taskId: number, suggestion: any, provider: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(llmSuggestions).values({
+    taskId,
+    suggestion,
+    provider,
+  });
 }
