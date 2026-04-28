@@ -336,3 +336,34 @@ export async function bootstrapAdmin(opts: { name: string; email: string; passwo
   });
   console.log(`[Bootstrap] Admin account created: ${opts.email}`);
 }
+
+export async function createProjectWithTasks(opts: {
+  name: string;
+  description?: string;
+  createdBy: number;
+  taskContents: string[];
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database offline");
+
+  return await db.transaction(async (tx) => {
+    const [project] = await tx.insert(projects).values({
+      name: opts.name,
+      description: opts.description ?? null,
+      createdBy: opts.createdBy,
+      totalItems: opts.taskContents.length,
+      status: 'active',
+    }).returning();
+
+    if (opts.taskContents.length > 0) {
+      const taskValues = opts.taskContents.map(content => ({
+        projectId: project.id,
+        content,
+        status: 'pending' as const,
+      }));
+      await tx.insert(tasks).values(taskValues);
+    }
+
+    return project;
+  });
+}
