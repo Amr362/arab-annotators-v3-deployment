@@ -20,12 +20,23 @@ interface InterfaceProject {
 }
 
 const STORAGE_KEY = "interface-builder-projects-v1";
+const INITIALIZED_KEY = "interface-builder-initialized-v1";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function loadProjects(): InterfaceProject[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const projects = raw ? JSON.parse(raw) : [];
+    
+    // If it's the first time ever, provide the sample
+    const isInitialized = localStorage.getItem(INITIALIZED_KEY);
+    if (!isInitialized && projects.length === 0) {
+      localStorage.setItem(INITIALIZED_KEY, "true");
+      saveProjects([SAMPLE]);
+      return [SAMPLE];
+    }
+    
+    return projects;
   } catch {
     return [];
   }
@@ -133,14 +144,12 @@ export default function InterfaceBuilder() {
 
   // Load from localStorage on mount
   useEffect(() => {
-    let stored = loadProjects();
-    if (!stored.length) {
-      stored = [SAMPLE];
-      saveProjects(stored);
-    }
+    const stored = loadProjects();
     setProjects(stored);
-    setActiveId(stored[0].id);
-    setHtml(stored[0].html);
+    if (stored.length > 0) {
+      setActiveId(stored[0].id);
+      setHtml(stored[0].html);
+    }
   }, []);
 
   const activeProject = projects.find(p => p.id === activeId) ?? null;
