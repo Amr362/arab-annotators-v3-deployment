@@ -359,7 +359,7 @@ export async function createProjectWithTasks(opts: {
       const taskValues = opts.taskContents.map(content => ({
         projectId: project.id,
         content,
-        status: 'pending' as const,
+        status: 'CREATED' as const,
       }));
       await tx.insert(tasks).values(taskValues);
     }
