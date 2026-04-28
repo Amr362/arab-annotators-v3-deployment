@@ -191,6 +191,16 @@ async function startServer() {
   // ── Background workers (v4) ──────────────────────────────────────────────
   startAllWorkers();
 
+  // ── Health check endpoint ──────────────────────────────────────────────────
+  app.get("/api/health", (_req, res) => {
+    res.json({
+      status: "ok",
+      version: "4.0.0",
+      timestamp: new Date().toISOString(),
+      uptime: Math.round(process.uptime()),
+    });
+  });
+
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
   if (port !== preferredPort) console.log(`Port ${preferredPort} busy → using ${port}`);

@@ -1,0 +1,17 @@
+# Railway deployment config — AnnotateOS v4
+
+[build]
+builder      = "nixpacks"
+buildCommand = "pnpm install --frozen-lockfile && pnpm build"
+
+[deploy]
+startCommand  = "pnpm db:push && node dist/index.js"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[env]
+PORT         = "5000"
+NODE_ENV     = "production"
+
+[[services]]
+name = "web"

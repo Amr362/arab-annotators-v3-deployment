@@ -1,28 +1,42 @@
-# Build stage
-FROM node:22-alpine AS builder
-ARG VITE_GOOGLE_CLIENT_ID
-ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-COPY patches/ ./patches/
-RUN npm install -g pnpm@10.4.1 && pnpm install --frozen-lockfile
-COPY . .
-RUN pnpm run build
+# ============================================================
+# AnnotateOS v4 — Dockerfile
+# Multi-stage build: builder → production
+# ============================================================
 
-# Production stage
-FROM node:22-alpine
+# ── Stage 1: Builder ─────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 WORKDIR /app
-RUN apk add --no-cache dumb-init
+
 COPY package.json pnpm-lock.yaml ./
-COPY patches/ ./patches/
-RUN npm install -g pnpm@10.4.1 && pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+
+# ── Stage 2: Production ───────────────────────────────────────
+FROM node:20-alpine AS production
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+# Copy only production deps
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
+# Copy built output
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
-RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
-USER nodejs
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
-EXPOSE 3000
-ENTRYPOINT ["dumb-init", "--"]
-CMD ["pnpm", "start"]
+
+ENV NODE_ENV=production
+ENV PORT=5000
+
+EXPOSE 5000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost:5000/api/health || exit 1
+
+CMD ["sh", "-c", "node dist/index.js"]
