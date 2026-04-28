@@ -189,8 +189,8 @@ export const appRouter = router({
         z.object({
           name: z.string().min(1),
           description: z.string().optional(),
-          tasksText: z.string().optional(),
-          taskContents: z.array(z.string()).optional(),
+          tasksText: z.string().nullish(),
+          taskContents: z.array(z.string()).nullish(),
           annotationType: z.string().optional(),
           labelsConfig: z.unknown().optional(),
           instructions: z.string().optional(),
@@ -587,8 +587,8 @@ export const appRouter = router({
         name: z.string().min(1),
         description: z.string().optional(),
         // Accept either raw text (one per line) OR a pre-parsed array from file upload
-        tasksText: z.string().optional(),
-        taskContents: z.array(z.string()).optional(),
+        tasksText: z.string().nullish(),
+        taskContents: z.array(z.string()).nullish(),
         annotationType: z.string().optional(),
         labelsConfig: z.unknown().optional(),
         instructions: z.string().optional(),
