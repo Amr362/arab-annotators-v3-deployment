@@ -187,30 +187,54 @@ export const appRouter = router({
     create: adminProcedure
       .input(
         z.object({
-          name: z.string(),
+          name: z.string().min(1),
           description: z.string().optional(),
-          totalItems: z.number().default(0),
+          tasksText: z.string().optional(),
+          taskContents: z.array(z.string()).optional(),
+          annotationType: z.string().optional(),
+          labelsConfig: z.unknown().optional(),
+          instructions: z.string().optional(),
+          minAnnotations: z.number().optional(),
+          aiPreAnnotation: z.boolean().optional(),
+          qaAiEnabled: z.boolean().optional(),
+          spamDetection: z.boolean().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const drizzleDb = await db.getDb();
-        if (!drizzleDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const taskContents = input.taskContents?.length
+          ? input.taskContents
+          : (input.tasksText ?? "").split("\n").map(s => s.trim()).filter(Boolean);
 
         try {
-          const [inserted] = await drizzleDb
-            .insert(projects)
-            .values({
-              name: input.name,
-              description: input.description,
-              totalItems: input.totalItems,
-              createdBy: ctx.user.id,
-            })
-            .returning();
+          const result = await db.createProjectWithTasks({
+            name: input.name,
+            description: input.description,
+            createdBy: ctx.user.id,
+            taskContents: taskContents.length > 0 ? taskContents : undefined,
+          });
 
-          return await db.getProjectById(inserted.id);
+          const projectId = result?.id;
+
+          if (projectId) {
+            const drizzleDb = await db.getDb();
+            if (drizzleDb) {
+              await drizzleDb.update(projects).set({
+                annotationType: input.annotationType ?? "classification",
+                labelsConfig: input.labelsConfig as any ?? null,
+                instructions: input.instructions ?? null,
+                minAnnotations: input.minAnnotations ?? 1,
+                aiPreAnnotation: input.aiPreAnnotation ?? false,
+                qaAiEnabled: input.qaAiEnabled ?? false,
+                spamDetection: input.spamDetection ?? false,
+                updatedAt: new Date(),
+              }).where(eq(projects.id, projectId));
+            }
+          }
+
+          return await db.getProjectById(projectId);
         } catch (error: any) {
           console.error("[createProject] error:", error?.message ?? error);
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error?.message ?? "Failed to create project" });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error?.message ?? "فشل إنشاء المشروع" });
         }
       }),
 
