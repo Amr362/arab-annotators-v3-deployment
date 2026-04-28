@@ -48,9 +48,10 @@ export default function Login() {
     const currentPath = window.location.pathname;
     let targetPath = "/";
     
-    if (user.role === "admin") targetPath = "/admin";
-    else if (user.role === "tasker") targetPath = "/tasker/tasks";
-    else if (user.role === "qa") targetPath = "/qa/queue";
+    if (user.role === "admin")        targetPath = "/admin";
+    else if (user.role === "manager")  targetPath = "/manager";
+    else if (user.role === "tasker")   targetPath = "/tasker/tasks";
+    else if (user.role === "qa")       targetPath = "/qa/queue";
     
     // Only redirect if we are not already at the target path
     if (currentPath !== targetPath && (currentPath === "/" || currentPath === "/login")) {

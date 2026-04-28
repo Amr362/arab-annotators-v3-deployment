@@ -8,6 +8,8 @@ import { eq, and, isNull, ne } from "drizzle-orm";
 import * as db from "./db";
 import { users, projects, tasks, annotations, qaReviews, statistics, notifications, taskSkips } from "../drizzle/schema";
 import { assignNextTask, startTask, submitTask } from "./workers/distributionWorker";
+import { managerRouter } from "./managerRouter";
+import { consumeSkip, getSkipStatus } from "./skipRateLimiter";
 import { transition } from "./workers/stateMachine";
 import { processSubmittedTask } from "./workers/qaSamplingWorker";
 import { setHoneyPot } from "./workers/honeypotChecker";
@@ -23,6 +25,7 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
 });
 
 export const appRouter = router({
+  manager: managerRouter,
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -53,7 +56,7 @@ export const appRouter = router({
         z.object({
           name: z.string().min(1),
           email: z.string().email(),
-          role: z.enum(["admin", "tasker", "qa", "user"]),
+          role: z.enum(["admin", "manager", "tasker", "qa", "user"]),
           password: z.string().min(6),
         })
       )
@@ -132,7 +135,7 @@ export const appRouter = router({
           id: z.number(),
           name: z.string().min(1).optional(),
           email: z.string().email().optional(),
-          role: z.enum(["admin", "tasker", "qa", "user"]).optional(),
+          role: z.enum(["admin", "manager", "tasker", "qa", "user"]).optional(),
           isActive: z.boolean().optional(),
         })
       )

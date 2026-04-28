@@ -15,11 +15,12 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 
-type Role = "admin" | "tasker" | "qa" | "user";
+type Role = "admin" | "manager" | "tasker" | "qa" | "user";
 
-const roleLabel: Record<Role, string> = { admin: "مدير", tasker: "موسِّم", qa: "مراجع جودة", user: "مستخدم" };
+const roleLabel: Record<Role, string> = { admin: "مسؤول", manager: "مدير مشاريع", tasker: "موسِّم", qa: "مراجع جودة", user: "مستخدم" };
 const roleBadgeColor: Record<Role, string> = {
   admin: "bg-red-100 text-red-700",
+  manager: "bg-violet-100 text-violet-700",
   tasker: "bg-amber-100 text-amber-700",
   qa: "bg-blue-100 text-blue-700",
   user: "bg-gray-100 text-gray-700",
@@ -427,7 +428,8 @@ export default function Admin() {
             <div><label className="text-sm font-medium">الدور</label>
               <Select value={createForm.role} onValueChange={v => setCreateForm(f => ({ ...f, role: v as Role }))}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="tasker">موسِّم</SelectItem><SelectItem value="qa">مراجع جودة</SelectItem><SelectItem value="admin">مدير</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="manager">مدير مشاريع</SelectItem>
+              <SelectItem value="tasker">موسِّم</SelectItem><SelectItem value="qa">مراجع جودة</SelectItem><SelectItem value="admin">مدير</SelectItem></SelectContent>
               </Select>
             </div>
           </div>

@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
   BarChart3, Users, FileText, CheckCircle2, LogOut, Bell, TrendingUp,
-  Moon, Sun, ChevronRight, ChevronLeft, X, Code2,
+  Moon, Sun, ChevronRight, ChevronLeft, X, Code2, Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +54,7 @@ export default function ArabAnnotatorsDashboardLayout({ children, title }: Dashb
   }
 
   const isAdmin = user.role === "admin";
+  const isManager = user.role === "manager";
   const isTasker = user.role === "tasker";
   const isQA = user.role === "qa";
 
@@ -64,6 +65,10 @@ export default function ArabAnnotatorsDashboardLayout({ children, title }: Dashb
     isAdmin && { label: "إدارة المشاريع",   icon: FileText,     href: "/admin/projects" },
     isAdmin && { label: "منشئ الواجهات", icon: Code2,        href: "/admin/interface" },
     
+    // Manager Items (v4)
+    (isManager || isAdmin) && { label: "لوحة المدير",     icon: Briefcase,    href: "/manager" },
+    (isManager || isAdmin) && { label: "إدارة المشاريع", icon: FileText,      href: "/manager/projects" },
+
     // Tasker Items
     (isTasker || isAdmin) && { label: "مهام التوسيم", icon: FileText,     href: "/tasker/tasks" },
     
@@ -82,7 +87,7 @@ export default function ArabAnnotatorsDashboardLayout({ children, title }: Dashb
   }
 
   const roleLabel: Record<string, string> = {
-    admin: "مسؤول", tasker: "موسِّم", qa: "مراجع الجودة"
+    admin: "مسؤول", manager: "مدير مشاريع", tasker: "موسِّم", qa: "مراجع الجودة"
   };
 
   return (

@@ -286,10 +286,14 @@ export default function TaskerDashboard() {
   const { data: allProjects } = trpc.tasker.getAvailableProjects.useQuery();
 
   // Queue-based task pull: tasker requests the next available task from the pool
+  const startTaskMutation = trpc.tasker.startTask.useMutation();
+
   const getNextTask = trpc.tasker.getNextTask.useMutation({
     onSuccess: (task) => {
       if (!task) { toast("🗕️ لا توجد مهام متاحة حالياً"); return; }
       toast.success("✅ تم تخصيص مهمة جديدة");
+      // v4: start the task immediately
+      startTaskMutation.mutate({ taskId: task.id });
       refetch(); refetchStats();
       // Switch to annotation panel immediately after getting task
       setPanel("annotate");
@@ -323,7 +327,14 @@ export default function TaskerDashboard() {
   useEffect(() => {
     if (draftData?.result && !annotationResult) setAnnotationResult(draftData.result as AnnotationResult);
   }, [draftData]);
-  useEffect(() => { setAnnotationResult(null); timer.reset(); }, [currentTask?.id]);
+  useEffect(() => {
+    setAnnotationResult(null);
+    timer.reset();
+    // v4: notify server that task is being viewed/started
+    if (currentTask?.id && currentTask.status === "pending") {
+      startTaskMutation.mutate({ taskId: currentTask.id });
+    }
+  }, [currentTask?.id]);
 
   // Fix memory leak: single postMessage listener managed by useEffect
   useEffect(() => {
@@ -375,6 +386,15 @@ export default function TaskerDashboard() {
     },
     onError: e => toast.error(e.message),
   });
+
+  // v4: skip quota display
+  const projectId = currentTask
+    ? (currentTask as any).projectId ?? 0
+    : 0;
+  const { data: skipStatus } = trpc.tasker.getSkipStatus.useQuery(
+    { projectId },
+    { enabled: !!projectId }
+  );
 
   const skipTask = trpc.taskSkip.skip.useMutation({
     onSuccess: () => {
@@ -733,6 +753,9 @@ export default function TaskerDashboard() {
                       <div className={cn("flex items-center gap-1.5 text-[13px] font-mono bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl transition-colors", timer.color)}>
                         <Timer size={12} />{timer.fmt}
                       </div>
+                      {skipStatus && skipStatus.remaining === 0 && (
+                        <span className="text-xs text-red-400 px-1.5">لا تخطيات متبقية</span>
+                      )}
                       <button onClick={() => setShowSkipModal(true)}
                         className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-xl transition-all">
                         <SkipForward size={13} />تخطي<kbd className="text-[9px] bg-white border border-slate-100 px-1 rounded font-mono">S</kbd>
@@ -1366,14 +1389,28 @@ export default function TaskerDashboard() {
               </div>
               <button onClick={() => setShowSkipModal(false)} className="mr-auto text-slate-300 hover:text-slate-600"><X size={17} /></button>
             </div>
+            {skipStatus !== undefined && (
+              <div className={`text-xs px-3 py-1.5 rounded-lg mb-1 ${
+                skipStatus.remaining === 0
+                  ? "bg-red-50 text-red-600"
+                  : skipStatus.remaining === 1
+                  ? "bg-amber-50 text-amber-600"
+                  : "bg-slate-50 text-slate-500"
+              }`}>
+                {skipStatus.remaining === 0
+                  ? `⛔ وصلت لحد التخطيات (${3}/3). انتظر ${Math.ceil(skipStatus.resetsIn / 60000)} دقيقة.`
+                  : `🔄 متبقي ${skipStatus.remaining} تخطيات من أصل 3 هذه الساعة`
+                }
+              </div>
+            )}
             <input value={skipReason} onChange={e => setSkipReason(e.target.value)}
               placeholder="سبب التخطي (اختياري)"
               className="w-full px-4 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-300/30 focus:border-amber-400 mb-4" />
             <div className="flex gap-2">
               <button onClick={() => setShowSkipModal(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all">إلغاء</button>
               <button
-                onClick={() => currentTask && skipTask.mutate({ taskId: currentTask.id, reason: skipReason || undefined })}
-                disabled={skipTask.isPending}
+                onClick={() => currentTask && skipTask.mutate({ taskId: currentTask.id, projectId: (currentTask as any).projectId ?? 0, reason: skipReason || undefined })}
+                disabled={skipTask.isPending || skipStatus?.remaining === 0}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 transition-all disabled:opacity-50"
               >
                 {skipTask.isPending ? "جارٍ..." : "تخطي"}
