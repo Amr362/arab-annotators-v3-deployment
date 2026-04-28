@@ -56,7 +56,7 @@ export const appRouter = router({
         z.object({
           name: z.string().min(1),
           email: z.string().email(),
-          role: z.enum(["admin", "manager", "tasker", "qa", "user"]),
+          role: z.enum(["admin", "tasker", "qa", "user"]),
           password: z.string().min(6),
         })
       )
@@ -135,7 +135,7 @@ export const appRouter = router({
           id: z.number(),
           name: z.string().min(1).optional(),
           email: z.string().email().optional(),
-          role: z.enum(["admin", "manager", "tasker", "qa", "user"]).optional(),
+          role: z.enum(["admin", "tasker", "qa", "user"]).optional(),
           isActive: z.boolean().optional(),
         })
       )
@@ -515,7 +515,26 @@ export const appRouter = router({
       if (ctx.user.role !== "tasker" && ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      return await db.getTaskerFeedback(ctx.user.id);
+      // v4: enrich feedback with honey pot check results
+      const baseFeedback = await db.getTaskerFeedback(ctx.user.id);
+      const drizzleDb = await db.getDb();
+      if (!drizzleDb || !baseFeedback?.length) return baseFeedback ?? [];
+
+      const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+      return Promise.all(baseFeedback.map(async (f: any) => {
+        if (!f.taskId) return f;
+        const annRows = await drizzleDb
+          .select({ isHoneyPotCheck: annotations.isHoneyPotCheck, honeyPotPassed: annotations.honeyPotPassed })
+          .from(annotations)
+          .where(andOp(eqOp(annotations.taskId, f.taskId), eqOp(annotations.userId, ctx.user.id)))
+          .limit(1);
+        const ann = annRows[0];
+        return {
+          ...f,
+          isHoneyPotCheck: ann?.isHoneyPotCheck ?? false,
+          honeyPotPassed: ann?.honeyPotPassed ?? null,
+        };
+      }));
     }),
   }),
 

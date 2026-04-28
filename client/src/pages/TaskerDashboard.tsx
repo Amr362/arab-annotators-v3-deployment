@@ -13,6 +13,9 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
+import WorkerProgressTracker from "@/components/WorkerProgressTracker";
+import FeedbackInbox from "@/components/FeedbackInbox";
+import WorkerMetricsCard from "@/components/WorkerMetricsCard";
 import AnnotationWidget from "@/components/annotation/AnnotationWidget";
 import type { AnnotationResult, ProjectLabelConfig } from "@/components/annotation/types";
 import { cn } from "@/lib/utils";
@@ -292,8 +295,6 @@ export default function TaskerDashboard() {
     onSuccess: (task) => {
       if (!task) { toast("🗕️ لا توجد مهام متاحة حالياً"); return; }
       toast.success("✅ تم تخصيص مهمة جديدة");
-      // v4: start the task immediately
-      startTaskMutation.mutate({ taskId: task.id });
       refetch(); refetchStats();
       // Switch to annotation panel immediately after getting task
       setPanel("annotate");
@@ -327,14 +328,7 @@ export default function TaskerDashboard() {
   useEffect(() => {
     if (draftData?.result && !annotationResult) setAnnotationResult(draftData.result as AnnotationResult);
   }, [draftData]);
-  useEffect(() => {
-    setAnnotationResult(null);
-    timer.reset();
-    // v4: notify server that task is being viewed/started
-    if (currentTask?.id && currentTask.status === "pending") {
-      startTaskMutation.mutate({ taskId: currentTask.id });
-    }
-  }, [currentTask?.id]);
+  useEffect(() => { setAnnotationResult(null); timer.reset(); }, [currentTask?.id]);
 
   // Fix memory leak: single postMessage listener managed by useEffect
   useEffect(() => {
@@ -1081,59 +1075,19 @@ export default function TaskerDashboard() {
               FEEDBACK PANEL
           ═══════════════════════════════ */}
           {panel === "feedback" && (
-            <div className="flex-1 overflow-auto p-5">
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare size={15} className="text-slate-400" />
-                    <h2 className="font-bold text-slate-800">ملاحظات مراقبة الجودة</h2>
-                  </div>
-                  {rejectedCount > 0 && (
-                    <span className="bg-red-100 text-red-600 text-xs font-bold px-2.5 py-1 rounded-full">{rejectedCount} مرفوض</span>
-                  )}
-                </div>
-                {!feedback?.length ? (
-                  <div className="p-14 text-center text-slate-400">
-                    <MessageSquare className="w-9 h-9 mx-auto mb-3 opacity-20" />
-                    <p className="text-sm">لا توجد ملاحظات بعد</p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-slate-50">
-                    {feedback.map((f: any) => (
-                      <div key={f.id} className={cn("p-5", f.status === "rejected" && "bg-red-50/30")}>
-                        <div className="flex items-start gap-3 mb-3">
-                          <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0",
-                            f.status === "approved" ? "bg-emerald-100" : f.status === "rejected" ? "bg-red-100" : "bg-slate-100")}>
-                            {f.status === "approved" ? <ThumbsUp size={13} className="text-emerald-600" />
-                              : f.status === "rejected" ? <ThumbsDown size={13} className="text-red-600" />
-                              : <Clock size={13} className="text-slate-500" />}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className={cn("text-xs font-bold",
-                                f.status === "approved" ? "text-emerald-600" : f.status === "rejected" ? "text-red-600" : "text-slate-400")}>
-                                {f.status === "approved" ? "✅ مقبول" : f.status === "rejected" ? "❌ مرفوض" : "⏳ قيد المراجعة"}
-                              </span>
-                              <span className="text-[10px] text-slate-300">·</span>
-                              <span className="text-[11px] text-slate-400">
-                                {new Date(f.createdAt).toLocaleString("ar-SA", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                              </span>
-                            </div>
-                            <p className="text-sm text-slate-700 leading-relaxed" dir="rtl">{f.taskContent || "—"}</p>
-                          </div>
-                        </div>
-                        {f.feedback && (
-                          <div className={cn("mr-11 p-3 rounded-xl text-sm leading-relaxed",
-                            f.status === "rejected" ? "bg-red-50 border border-red-100 text-red-800" : "bg-emerald-50 border border-emerald-100 text-emerald-800")}>
-                            <span className="font-semibold">ملاحظة: </span>{f.feedback}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <FeedbackInbox
+              items={(feedback ?? []).map((f: any) => ({
+                id: f.id,
+                taskId: f.taskId,
+                taskContent: f.taskContent,
+                status: f.status,
+                feedback: f.feedback,
+                isHoneyPotCheck: f.isHoneyPotCheck ?? false,
+                honeyPotPassed: f.honeyPotPassed,
+                createdAt: f.createdAt,
+              }))}
+              onViewGuidelines={() => setPanel("projects")}
+            />
           )}
 
           {/* ═══════════════════════════════
@@ -1273,6 +1227,11 @@ export default function TaskerDashboard() {
                     />
                   </div>
                 </div>
+
+                {/* v4: Live quality metrics from StatsWorker */}
+                <WorkerMetricsCard
+                  projectId={(allProjects ?? [])[0]?.id}
+                />
 
                 {/* Streak + Earnings */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
