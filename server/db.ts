@@ -356,12 +356,12 @@ export async function createProjectWithTasks(opts: {
     }).returning();
 
     if (opts.taskContents.length > 0) {
-      const taskValues = opts.taskContents.map(content => ({
-        projectId: project.id,
-        content,
-        status: 'CREATED' as const,
-      }));
-      await tx.insert(tasks).values(taskValues);
+      for (const content of opts.taskContents) {
+        await tx.execute(sql`
+          INSERT INTO tasks ("projectId", "content", "status", "createdAt", "updatedAt")
+          VALUES (${project.id}, ${content}, 'CREATED', NOW(), NOW())
+        `);
+      }
     }
 
     return project;
