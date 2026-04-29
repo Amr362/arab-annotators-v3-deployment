@@ -1,15 +1,13 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "dockerfile",
-    "buildArgs": {
-      "VITE_GOOGLE_CLIENT_ID": "${{VITE_GOOGLE_CLIENT_ID}}"
-    }
+    "builder": "nixpacks"
   },
   "deploy": {
     "numReplicas": 1,
-
-    "startCommand": "pnpm start",
-    "restartPolicyMaxRetries": 10
+    "startCommand": "pnpm db:push && node dist/index.js",
+    "restartPolicyMaxRetries": 10,
+    "healthCheckPath": "/api/health",
+    "healthCheckTimeout": 10
   }
 }

@@ -201,10 +201,16 @@ async function startServer() {
     });
   });
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
-  if (port !== preferredPort) console.log(`Port ${preferredPort} busy → using ${port}`);
-  server.listen(port, () => console.log(`✅ Server running on http://localhost:${port}/`));
+  const port = parseInt(process.env.PORT || "3000");
+  // In production (Railway), we MUST bind to the exact PORT provided.
+  // findAvailablePort is only safe for local development.
+  if (process.env.NODE_ENV === "production") {
+    server.listen(port, "0.0.0.0", () => console.log(`✅ Production server running on port ${port}`));
+  } else {
+    const availablePort = await findAvailablePort(port);
+    if (availablePort !== port) console.log(`Port ${port} busy → using ${availablePort}`);
+    server.listen(availablePort, () => console.log(`✅ Dev server running on http://localhost:${availablePort}/`));
+  }
 }
 
 startServer().catch(console.error);

@@ -293,6 +293,91 @@ export async function saveLLMSuggestion(taskId: number, suggestion: any, provide
   await db.insert(llmSuggestions).values({ taskId, suggestion, provider }).catch(() => {});
 }
 
+export async function getUnreadNotificationCount(userId: number): Promise<number> {
+  return withDb(async (db) => {
+    const result = await db.select({ c: count() }).from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+    return Number(result[0]?.c ?? 0);
+  }, 0, "getUnreadNotificationCount");
+}
+
+export async function markNotificationRead(id: number, userId: number) {
+  const db = await getDb(); if (!db) return;
+  await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.id, id), eq(notifications.userId, userId))).catch(() => {});
+}
+
+export async function markAllNotificationsRead(userId: number) {
+  const db = await getDb(); if (!db) return;
+  await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId)).catch(() => {});
+}
+
+export async function getTaskerFeedback(userId: number) {
+  return withDb(async (db) => {
+    return await db.select({
+      id: qaReviews.id,
+      annotationId: qaReviews.annotationId,
+      status: qaReviews.status,
+      feedback: qaReviews.feedback,
+      createdAt: qaReviews.createdAt,
+      taskId: annotations.taskId,
+    })
+    .from(qaReviews)
+    .innerJoin(annotations, eq(qaReviews.annotationId, annotations.id))
+    .where(eq(annotations.userId, userId))
+    .orderBy(desc(qaReviews.createdAt));
+  }, [], "getTaskerFeedback");
+}
+
+export async function assignTasksToUser(taskIds: number[], userId: number) {
+  const db = await getDb(); if (!db) throw new Error("DB offline");
+  await db.update(tasks).set({ assignedTo: userId, status: 'assigned', updatedAt: new Date() }).where(inArray(tasks.id, taskIds));
+  return { success: true };
+}
+
+export async function getUnassignedTasks(projectId: number, limit: number = 50) {
+  return withDb(async (db) => {
+    return await db.select().from(tasks).where(and(eq(tasks.projectId, projectId), isNull(tasks.assignedTo))).limit(limit);
+  }, [], "getUnassignedTasks");
+}
+
+export async function resetUserPassword(userId: number, newPassword: string) {
+  const db = await getDb(); if (!db) throw new Error("DB offline");
+  const passwordHash = await hashPassword(newPassword);
+  await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
+  return { success: true };
+}
+
+export async function getAdminStats() {
+  return withDb(async (db) => {
+    const [uCount, pCount, tCount, aCount] = await Promise.all([
+      db.select({ c: count() }).from(users),
+      db.select({ c: count() }).from(projects),
+      db.select({ c: count() }).from(tasks),
+      db.select({ c: count() }).from(annotations),
+    ]);
+    return {
+      totalUsers: Number(uCount[0]?.c ?? 0),
+      totalProjects: Number(pCount[0]?.c ?? 0),
+      totalTasks: Number(tCount[0]?.c ?? 0),
+      totalAnnotations: Number(aCount[0]?.c ?? 0),
+    };
+  }, { totalUsers: 0, totalProjects: 0, totalTasks: 0, totalAnnotations: 0 }, "getAdminStats");
+}
+
+export async function getLeaderboard() {
+  return withDb(async (db) => {
+    return await db.select({
+      id: users.id,
+      name: users.name,
+      count: count(annotations.id),
+    })
+    .from(users)
+    .leftJoin(annotations, eq(users.id, annotations.userId))
+    .groupBy(users.id)
+    .orderBy(desc(count(annotations.id)))
+    .limit(10);
+  }, [], "getLeaderboard");
+}
+
 // Added missing functions for auth and bootstrap
 import bcrypt from "bcryptjs";
 export async function hashPassword(password: string): Promise<string> {
