@@ -1,14 +1,14 @@
 # Railway deployment config — AnnotateOS v4
 
 [build]
-builder = "docker"
-dockerfilePath = "Dockerfile"
+builder = "DOCKER"
+dockerfile = "Dockerfile"
 
 [deploy]
 startCommand = "node dist/index.js"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 10
-restartPolicyType = "on_failure"
+restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
 [env]
