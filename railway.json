@@ -5,7 +5,7 @@
   },
   "deploy": {
     "numReplicas": 1,
-    "startCommand": "pnpm db:push && node dist/index.js",
+    "startCommand": "pnpm install && pnpm db:push && node dist/index.js",
     "restartPolicyMaxRetries": 10,
     "healthCheckPath": "/api/health",
     "healthCheckTimeout": 10
