@@ -34,9 +34,11 @@ COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy built output
+# Copy built output and config needed for production
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle ./drizzle
+COPY --from=builder /app/vite.config.ts ./vite.config.ts
+COPY --from=builder /app/client/index.html ./client/index.html
 
 ENV NODE_ENV=production
 ENV PORT=3000
