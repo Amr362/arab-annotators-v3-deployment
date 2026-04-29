@@ -15,7 +15,7 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
-RUN pnpm install --frozen-lockfile
+RUN pnpm install
 
 COPY . .
 RUN pnpm build
@@ -32,7 +32,7 @@ WORKDIR /app
 # Copy only production deps
 COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --prod
 
 # Copy built output and config needed for production
 COPY --from=builder /app/dist ./dist
