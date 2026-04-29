@@ -4,7 +4,7 @@
 # ============================================================
 
 # ── Stage 1: Builder ─────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 # Set pnpm version to match package.json
 ENV PNPM_HOME="/pnpm"
@@ -21,7 +21,7 @@ COPY . .
 RUN pnpm build
 
 # ── Stage 2: Production ───────────────────────────────────────
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -46,6 +46,6 @@ ENV PORT=3000
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/health || exit 1
+  CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
-CMD ["sh", "-c", "node dist/index.cjs"]
+CMD ["sh", "-c", "node dist/index.js"]

@@ -146,18 +146,26 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [];
-if (process.env.NODE_ENV !== "production") {
-  const { jsxLocPlugin } = await import("@builder.io/vite-plugin-jsx-loc");
-  const { default: tailwindcss } = await import("@tailwindcss/vite");
-  const { default: react } = await import("@vitejs/plugin-react");
-  const { vitePluginManusRuntime } = await import("vite-plugin-manus-runtime");
-  plugins.push(react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime());
-}
-plugins.push(vitePluginManusDebugCollector());
+// Configuration for plugins that are only needed in development
+const getPlugins = async () => {
+  const plugins = [];
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      const { jsxLocPlugin } = await import("@builder.io/vite-plugin-jsx-loc");
+      const { default: tailwindcss } = await import("@tailwindcss/vite");
+      const { default: react } = await import("@vitejs/plugin-react");
+      const { vitePluginManusRuntime } = await import("vite-plugin-manus-runtime");
+      plugins.push(react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime());
+    } catch (e) {
+      console.warn("Development plugins failed to load:", e);
+    }
+  }
+  plugins.push(vitePluginManusDebugCollector());
+  return plugins;
+};
 
-export default defineConfig({
-  plugins,
+export default defineConfig(async () => ({
+  plugins: await getPlugins(),
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
@@ -188,4 +196,4 @@ export default defineConfig({
       deny: ["**/.*"],
     },
   },
-});
+}));
