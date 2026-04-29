@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { InsertUser, users, projects, tasks, annotations, qaReviews, statistics, notifications, llmSuggestions } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import bcrypt from "bcryptjs";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: pg.Pool | null = null;
@@ -10,8 +11,7 @@ let _pool: pg.Pool | null = null;
 export async function getDb() {
   if (_db) return _db;
   
-  // Force reading from process.env to ensure Railway variables are used over local .env files
-  const dbUrl = process.env.DATABASE_URL || ENV.databaseUrl;
+  const dbUrl = ENV.databaseUrl;
 
   if (!dbUrl) {
     console.error("[Database] CRITICAL: DATABASE_URL is missing!");
@@ -20,18 +20,17 @@ export async function getDb() {
 
   try {
     if (!_pool) {
-      const urlObj = new URL(dbUrl.startsWith('postgresql://') ? dbUrl : `postgresql://${dbUrl}`);
-      console.log(`[Database] Connecting to: ${urlObj.hostname}:${urlObj.port}`);
+      // Handle cases where Railway might provide a URL without protocol
+      const connectionString = dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://') 
+        ? dbUrl 
+        : `postgresql://${dbUrl}`;
 
       _pool = new pg.Pool({
-        connectionString: dbUrl,
+        connectionString,
         max: 10,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
-        // Crucial for Railway: accept self-signed certificates
-        ssl: {
-          rejectUnauthorized: false
-        }
+        ssl: ENV.isProduction ? { rejectUnauthorized: false } : false
       });
 
       _pool.on('error', (err) => {
@@ -48,9 +47,6 @@ export async function getDb() {
       .then((res) => console.log("[Database] Online! Server time:", res.rows[0].now))
       .catch(err => {
         console.error("[Database] Connectivity Check Failed:", err.message);
-        if (err.message.includes('self-signed certificate')) {
-          console.error("[Database] SSL Error: The server rejected the self-signed certificate. Ensure rejectUnauthorized is false.");
-        }
       });
 
     return _db;
@@ -58,6 +54,40 @@ export async function getDb() {
     console.error("[Database] Init Error:", error.message);
     return null;
   }
+}
+
+// ── Bootstrap Admin ────────────────────────────────────────────────────────
+export async function bootstrapAdmin(data: { name: string; email: string; password: string }) {
+  const db = await getDb();
+  if (!db) return;
+
+  try {
+    const passwordHash = await bcrypt.hash(data.password, 10);
+    await db.insert(users).values({
+      name: data.name,
+      email: data.email,
+      openId: `local-${data.email}`,
+      role: "admin",
+      loginMethod: "local",
+      passwordHash,
+      isActive: true,
+    }).onConflictDoNothing();
+    console.log(`[Bootstrap] Admin user ${data.email} ensured`);
+  } catch (e) {
+    console.warn("[Bootstrap] Failed to bootstrap admin:", e);
+  }
+}
+
+// ── User Helpers ───────────────────────────────────────────────────────────
+export async function getUserByIdentifier(identifier: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(users).where(eq(users.email, identifier)).limit(1);
+  return result[0] || null;
+}
+
+export async function verifyPassword(hash: string, plain: string) {
+  return bcrypt.compare(plain, hash);
 }
 
 // Helper to wrap DB operations with consistent logging
@@ -251,204 +281,6 @@ export async function createProject(data: any) {
 
 export async function updateProject(id: number, data: any) {
   const db = await getDb(); if (!db) throw new Error("DB offline");
-  const res = await db.update(projects).set({ ...data, updatedAt: new Date() }).where(eq(projects.id, id)).returning(); return res[0];
-}
-
-export async function deleteProject(id: number) {
-  const db = await getDb(); if (!db) throw new Error("DB offline");
-  await db.delete(projects).where(eq(projects.id, id));
-}
-
-export async function createTasks(data: any[]) {
-  const db = await getDb(); if (!db) throw new Error("DB offline");
-  return await db.insert(tasks).values(data).returning();
-}
-
-export async function updateTask(id: number, data: any) {
-  const db = await getDb(); if (!db) throw new Error("DB offline");
-  const res = await db.update(tasks).set({ ...data, updatedAt: new Date() }).where(eq(tasks.id, id)).returning(); return res[0];
-}
-
-export async function deleteTasksByProject(projectId: number) {
-  const db = await getDb(); if (!db) throw new Error("DB offline");
-  await db.delete(tasks).where(eq(tasks.projectId, projectId));
-}
-
-export async function createNotification(data: any) {
-  const db = await getDb(); if (!db) return;
-  await db.insert(notifications).values(data).catch(() => {});
-}
-
-export async function markNotificationAsRead(id: number) {
-  const db = await getDb(); if (!db) return;
-  await db.update(notifications).set({ isRead: true }).where(eq(notifications.id, id)).catch(() => {});
-}
-
-export async function getLLMSuggestions(taskId: number) {
-  return withDb(async (db) => await db.select().from(llmSuggestions).where(eq(llmSuggestions.taskId, taskId)).orderBy(desc(llmSuggestions.createdAt)), [], "getLLMSuggestions");
-}
-
-export async function saveLLMSuggestion(taskId: number, suggestion: any, provider: string) {
-  const db = await getDb(); if (!db) return;
-  await db.insert(llmSuggestions).values({ taskId, suggestion, provider }).catch(() => {});
-}
-
-export async function getUnreadNotificationCount(userId: number): Promise<number> {
-  return withDb(async (db) => {
-    const result = await db.select({ c: count() }).from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
-    return Number(result[0]?.c ?? 0);
-  }, 0, "getUnreadNotificationCount");
-}
-
-export async function markNotificationRead(id: number, userId: number) {
-  const db = await getDb(); if (!db) return;
-  await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.id, id), eq(notifications.userId, userId))).catch(() => {});
-}
-
-export async function markAllNotificationsRead(userId: number) {
-  const db = await getDb(); if (!db) return;
-  await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId)).catch(() => {});
-}
-
-export async function getTaskerFeedback(userId: number) {
-  return withDb(async (db) => {
-    return await db.select({
-      id: qaReviews.id,
-      annotationId: qaReviews.annotationId,
-      status: qaReviews.status,
-      feedback: qaReviews.feedback,
-      createdAt: qaReviews.createdAt,
-      taskId: annotations.taskId,
-    })
-    .from(qaReviews)
-    .innerJoin(annotations, eq(qaReviews.annotationId, annotations.id))
-    .where(eq(annotations.userId, userId))
-    .orderBy(desc(qaReviews.createdAt));
-  }, [], "getTaskerFeedback");
-}
-
-export async function assignTasksToUser(taskIds: number[], userId: number) {
-  const db = await getDb(); if (!db) throw new Error("DB offline");
-  await db.update(tasks).set({ assignedTo: userId, status: 'assigned', updatedAt: new Date() }).where(inArray(tasks.id, taskIds));
-  return { success: true };
-}
-
-export async function getUnassignedTasks(projectId: number, limit: number = 50) {
-  return withDb(async (db) => {
-    return await db.select().from(tasks).where(and(eq(tasks.projectId, projectId), isNull(tasks.assignedTo))).limit(limit);
-  }, [], "getUnassignedTasks");
-}
-
-export async function resetUserPassword(userId: number, newPassword: string) {
-  const db = await getDb(); if (!db) throw new Error("DB offline");
-  const passwordHash = await hashPassword(newPassword);
-  await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
-  return { success: true };
-}
-
-export async function getAdminStats() {
-  return withDb(async (db) => {
-    const [uCount, pCount, tCount, aCount] = await Promise.all([
-      db.select({ c: count() }).from(users),
-      db.select({ c: count() }).from(projects),
-      db.select({ c: count() }).from(tasks),
-      db.select({ c: count() }).from(annotations),
-    ]);
-    return {
-      totalUsers: Number(uCount[0]?.c ?? 0),
-      totalProjects: Number(pCount[0]?.c ?? 0),
-      totalTasks: Number(tCount[0]?.c ?? 0),
-      totalAnnotations: Number(aCount[0]?.c ?? 0),
-    };
-  }, { totalUsers: 0, totalProjects: 0, totalTasks: 0, totalAnnotations: 0 }, "getAdminStats");
-}
-
-export async function getLeaderboard() {
-  return withDb(async (db) => {
-    return await db.select({
-      id: users.id,
-      name: users.name,
-      count: count(annotations.id),
-    })
-    .from(users)
-    .leftJoin(annotations, eq(users.id, annotations.userId))
-    .groupBy(users.id)
-    .orderBy(desc(count(annotations.id)))
-    .limit(10);
-  }, [], "getLeaderboard");
-}
-
-// Added missing functions for auth and bootstrap
-import bcrypt from "bcryptjs";
-export async function hashPassword(password: string): Promise<string> {
-  return await bcrypt.hash(password, 10);
-}
-
-export async function verifyPassword(stored: string, supplied: string): Promise<boolean> {
-  if (stored.startsWith("$2")) {
-    return await bcrypt.compare(supplied, stored);
-  }
-  return false;
-}
-
-export async function getUserByIdentifier(identifier: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const lower = identifier.toLowerCase();
-  const byEmail = await db.select().from(users).where(eq(users.email, lower)).limit(1);
-  if (byEmail.length > 0) return byEmail[0];
-  const byName = await db.select().from(users).where(eq(users.name, identifier)).limit(1);
-  return byName.length > 0 ? byName[0] : undefined;
-}
-
-export async function bootstrapAdmin(opts: { name: string; email: string; password: string }) {
-  const db = await getDb();
-  if (!db) return;
-  const existing = await db.select().from(users).where(eq(users.role, "admin")).limit(1);
-  if (existing.length > 0) return;
-
-  const openId = `local_${Date.now()}`;
-  const passwordHash = await hashPassword(opts.password);
-
-  await db.insert(users).values({
-    openId,
-    name: opts.name,
-    email: opts.email.toLowerCase(),
-    role: "admin",
-    loginMethod: "local",
-    passwordHash,
-    isActive: true,
-  });
-  console.log(`[Bootstrap] Admin account created: ${opts.email}`);
-}
-
-export async function createProjectWithTasks(opts: {
-  name: string;
-  description?: string;
-  createdBy: number;
-  taskContents: string[];
-}) {
-  const db = await getDb();
-  if (!db) throw new Error("Database offline");
-
-  return await db.transaction(async (tx) => {
-    const [project] = await tx.insert(projects).values({
-      name: opts.name,
-      description: opts.description ?? null,
-      createdBy: opts.createdBy,
-      totalItems: opts.taskContents.length,
-      status: 'active',
-    }).returning();
-
-    if (opts.taskContents.length > 0) {
-      for (const content of opts.taskContents) {
-        await tx.execute(sql`
-          INSERT INTO tasks ("projectId", "content", "status", "createdAt", "updatedAt")
-          VALUES (${project.id}, ${content}, 'CREATED', NOW(), NOW())
-        `);
-      }
-    }
-
-    return project;
-  });
+  const res = await db.update(projects).set({ ...data, updatedAt: new Date() }).where(eq(projects.id, id)).returning();
+  return res[0];
 }
