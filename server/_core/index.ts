@@ -80,7 +80,7 @@ async function startServer() {
     try {
       const drizzleDb = await db.getDb();
       if (!drizzleDb) { res.json({ needsSetup: true, hasDb: false }); return; }
-      const { users } = await import("../../drizzle/schema");
+      const { users } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const admins = await drizzleDb.select().from(users).where(eq(users.role, "admin")).limit(1);
       res.json({ needsSetup: admins.length === 0, hasDb: true });
@@ -105,7 +105,7 @@ async function startServer() {
     try {
       const drizzleDb = await db.getDb();
       if (!drizzleDb) { res.status(503).json({ error: "قاعدة البيانات غير متاحة" }); return; }
-      const { users: usersTable } = await import("../../drizzle/schema");
+      const { users: usersTable } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       // Only allow if no admins exist yet
       const existing = await drizzleDb.select().from(usersTable).where(eq(usersTable.role, "admin")).limit(1);
@@ -151,7 +151,7 @@ async function startServer() {
       // Update last sign-in
       const drizzleDb = await db.getDb();
       if (drizzleDb) {
-        const { users: usersTable } = await import("../../drizzle/schema");
+        const { users: usersTable } = await import("../drizzle/schema");
         const { eq } = await import("drizzle-orm");
         await drizzleDb.update(usersTable).set({ lastSignedIn: new Date() }).where(eq(usersTable.id, user.id));
       }
