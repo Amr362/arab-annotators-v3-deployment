@@ -1,9 +1,39 @@
-CREATE TYPE "public"."annotation_status" AS ENUM('pending_review', 'approved', 'rejected');--> statement-breakpoint
-CREATE TYPE "public"."notification_type" AS ENUM('progress', 'quality_alert', 'system', 'review_request');--> statement-breakpoint
-CREATE TYPE "public"."project_status" AS ENUM('active', 'paused', 'completed');--> statement-breakpoint
-CREATE TYPE "public"."qa_status" AS ENUM('approved', 'rejected', 'needs_revision');--> statement-breakpoint
-CREATE TYPE "public"."role" AS ENUM('user', 'admin', 'manager', 'tasker', 'qa');--> statement-breakpoint
-CREATE TYPE "public"."task_status" AS ENUM('pending', 'in_progress', 'submitted', 'approved', 'rejected', 'CREATED', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 'IN_QA', 'APPROVED', 'REJECTED', 'EXPIRED');--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."annotation_status" AS ENUM('pending_review', 'approved', 'rejected');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."notification_type" AS ENUM('progress', 'quality_alert', 'system', 'review_request');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."project_status" AS ENUM('active', 'paused', 'completed');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."qa_status" AS ENUM('approved', 'rejected', 'needs_revision');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."role" AS ENUM('user', 'admin', 'manager', 'tasker', 'qa');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."task_status" AS ENUM('pending', 'in_progress', 'submitted', 'approved', 'rejected', 'CREATED', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 'IN_QA', 'APPROVED', 'REJECTED', 'EXPIRED');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
 CREATE TABLE "annotations" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "annotations_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"taskId" integer NOT NULL,
