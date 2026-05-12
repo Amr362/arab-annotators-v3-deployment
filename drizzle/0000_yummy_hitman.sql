@@ -29,7 +29,7 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
- CREATE TYPE "public"."task_status" AS ENUM('pending', 'in_progress', 'submitted', 'approved', 'rejected', 'CREATED', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 'IN_QA', 'APPROVED', 'REJECTED', 'EXPIRED');
+ CREATE TYPE "public"."task_status" AS ENUM('pending', 'in_progress', 'submitted', 'approved', 'rejected', 'assigned', 'CREATED', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 'IN_QA', 'APPROVED', 'REJECTED', 'EXPIRED');
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;

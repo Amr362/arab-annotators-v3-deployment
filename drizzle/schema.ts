@@ -33,6 +33,7 @@ export const taskStatusEnum = pgEnum("task_status", [
   "submitted",
   "approved",
   "rejected",
+  "assigned",
   // v4 canonical
   "CREATED",
   "ASSIGNED",
