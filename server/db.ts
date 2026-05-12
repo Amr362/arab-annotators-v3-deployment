@@ -284,3 +284,124 @@ export async function updateProject(id: number, data: any) {
   const res = await db.update(projects).set({ ...data, updatedAt: new Date() }).where(eq(projects.id, id)).returning();
   return res[0];
 }
+
+// ── Missing Helpers for Routers ─────────────────────────────────────────────
+
+export async function hashPassword(password: string) {
+  return bcrypt.hash(password, 10);
+}
+
+export async function createProjectWithTasks(data: {
+  name: string;
+  description?: string;
+  createdBy: number;
+  taskContents?: string[];
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB offline");
+
+  return await db.transaction(async (tx) => {
+    const [project] = await tx.insert(projects).values({
+      name: data.name,
+      description: data.description ?? null,
+      createdBy: data.createdBy,
+      status: "active",
+    }).returning();
+
+    if (data.taskContents && data.taskContents.length > 0) {
+      const taskValues = data.taskContents.map(content => ({
+        projectId: project.id,
+        content,
+        status: "pending",
+      }));
+      // Insert in chunks if too many tasks
+      const chunkSize = 100;
+      for (let i = 0; i < taskValues.length; i += chunkSize) {
+        await tx.insert(tasks).values(taskValues.slice(i, i + chunkSize));
+      }
+      await tx.update(projects).set({ totalItems: data.taskContents.length }).where(eq(projects.id, project.id));
+    }
+
+    return project;
+  });
+}
+
+export async function getUnreadNotificationCount(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db.select({ c: count() }).from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+  return Number(result[0]?.c ?? 0);
+}
+
+export async function markNotificationRead(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.id, id), eq(notifications.userId, userId)));
+}
+
+export async function markAllNotificationsRead(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId));
+}
+
+export async function getTaskerFeedback(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(qaReviews)
+    .innerJoin(annotations, eq(qaReviews.annotationId, annotations.id))
+    .where(and(eq(annotations.userId, userId), ne(qaReviews.status, "approved")))
+    .orderBy(desc(qaReviews.createdAt))
+    .limit(20);
+}
+
+export async function assignTasksToUser(taskIds: number[], userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(tasks).set({ assignedTo: userId, updatedAt: new Date() }).where(inArray(tasks.id, taskIds));
+}
+
+export async function getUnassignedTasks(projectId: number, limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(tasks).where(and(eq(tasks.projectId, projectId), isNull(tasks.assignedTo))).limit(limit);
+}
+
+export async function resetUserPassword(userId: number, newPassword: string) {
+  const db = await getDb();
+  if (!db) return;
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
+}
+
+export async function getAdminStats() {
+  const db = await getDb();
+  if (!db) return { totalUsers: 0, totalProjects: 0, totalTasks: 0, totalAnnotations: 0 };
+  const [u, p, t, a] = await Promise.all([
+    db.select({ c: count() }).from(users),
+    db.select({ c: count() }).from(projects),
+    db.select({ c: count() }).from(tasks),
+    db.select({ c: count() }).from(annotations),
+  ]);
+  return {
+    totalUsers: Number(u[0]?.c ?? 0),
+    totalProjects: Number(p[0]?.c ?? 0),
+    totalTasks: Number(t[0]?.c ?? 0),
+    totalAnnotations: Number(a[0]?.c ?? 0),
+  };
+}
+
+export async function getLeaderboard() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select({
+    id: users.id,
+    name: users.name,
+    count: count(annotations.id),
+  })
+  .from(users)
+  .leftJoin(annotations, eq(users.id, annotations.userId))
+  .groupBy(users.id, users.name)
+  .orderBy(desc(count(annotations.id)))
+  .limit(10);
+}
