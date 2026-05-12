@@ -1,7 +1,7 @@
 export const ENV = {
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-  cookieSecret: process.env.JWT_SECRET ?? "arab-annotators-default-secret-change-in-prod",
+  cookieSecret: process.env.JWT_SECRET ?? process.env.SESSION_SECRET ?? "arab-annotators-default-secret-change-in-prod",
   databaseUrl: process.env.DATABASE_URL || process.env.DATABASE_PRIVATE_URL || "",
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",

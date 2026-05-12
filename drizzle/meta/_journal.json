@@ -4,23 +4,9 @@
   "entries": [
     {
       "idx": 0,
-      "version": "5",
-      "when": 1773584466804,
-      "tag": "0000_tense_jamie_braddock",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1773584841307,
-      "tag": "0001_modern_wolf_cub",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1745712000000,
-      "tag": "0006_v4_state_machine",
+      "version": "7",
+      "when": 1778621531439,
+      "tag": "0000_yummy_hitman",
       "breakpoints": true
     }
   ]

@@ -47,6 +47,6 @@ ENV PORT=3000
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+  CMD node -e "import('http').then(http => http.get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) process.exit(1)}))"
 
-CMD ["sh", "-c", "pnpm db:push && node dist/index.js"]
+CMD ["sh", "-c", "pnpm db:migrate && node dist/index.js"]
