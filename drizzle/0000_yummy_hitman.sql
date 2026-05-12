@@ -34,6 +34,10 @@ EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
+ALTER TYPE "public"."task_status" ADD VALUE IF NOT EXISTS 'assigned';
+--> statement-breakpoint
+ALTER TYPE "public"."task_status" ADD VALUE IF NOT EXISTS 'in_progress';
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "annotations" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "annotations_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"taskId" integer NOT NULL,
