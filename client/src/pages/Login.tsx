@@ -131,7 +131,7 @@ export default function Login() {
         {/* DB unavailable warning */}
         {!hasDb && (
           <div className="bg-red-900/30 border border-red-500/30 rounded-xl p-4 mb-4 text-red-300 text-sm text-center">
-            ⚠️ قاعدة البيانات غير متاحة — تأكد من ربط قاعدة بيانات PostgreSQL بالخدمة في Railway وتحقق من متغير DATABASE_URL
+            ⚠️ قاعدة البيانات غير متاحة — تأكد من إضافة متغير DATABASE_URL في إعدادات Railway (Variables) واستخدام رابط الاتصال من Supabase.
           </div>
         )}
 

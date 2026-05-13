@@ -21,18 +21,24 @@ export async function getDb() {
   try {
     if (!_pool) {
       // Handle cases where Railway might provide a URL without protocol
-      const connectionString = dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://') 
-        ? dbUrl 
-        : `postgresql://${dbUrl}`;
+      // Support for Supabase and Transaction Pooler
+      let connectionString = dbUrl;
+      if (!connectionString.startsWith('postgresql://') && !connectionString.startsWith('postgres://')) {
+        connectionString = `postgresql://${dbUrl}`;
+      }
 
       const isSupabase = connectionString.includes('supabase.com');
+      const isPooler = connectionString.includes('pooler') || connectionString.includes(':6543');
+      
       _pool = new pg.Pool({
         connectionString,
-        max: 10,
+        max: isPooler ? 5 : 10, // Use smaller pool for transaction poolers
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
-        ssl: (ENV.isProduction || isSupabase || connectionString.includes('pooler') || connectionString.includes('railway.app')) ? { rejectUnauthorized: false } : false,
-        // Add keepalive for Supabase Pooler stability
+        // Supabase requires SSL for external connections
+        ssl: (ENV.isProduction || isSupabase || isPooler || connectionString.includes('railway.app')) 
+          ? { rejectUnauthorized: false } 
+          : false,
         keepAlive: true,
       });
 
