@@ -194,7 +194,7 @@ async function startServer() {
   // ── Health check endpoint (duplicate removed, already defined above) ──────────
   // Removed duplicate health check endpoint
 
-  const port = parseInt(process.env.PORT || "5000", 10);
+  const port = parseInt(process.env.PORT || "3000", 10);
   server.listen(port, "0.0.0.0", () => {
     console.log(`✅ Server running on port ${port} (NODE_ENV: ${process.env.NODE_ENV})`);
     console.log(`📍 Available at http://0.0.0.0:${port}`);

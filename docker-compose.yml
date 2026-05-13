@@ -6,15 +6,15 @@ services:
     image: postgres:15-alpine
     container_name: arab-annotators-db
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-arab_annotators}
-      POSTGRES_USER: ${POSTGRES_USER:-annotator}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-annotator_password}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-annotator} -d ${POSTGRES_DB:-arab_annotators}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       timeout: 20s
       retries: 10
     networks:
@@ -28,9 +28,9 @@ services:
       DJANGO_DB: default
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB:-arab_annotators}
-      POSTGRES_USER: ${POSTGRES_USER:-annotator}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-annotator_password}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: "true"
     ports:
       - "8080:8080"
@@ -50,8 +50,8 @@ services:
     container_name: arab-annotators-app
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-annotator}:${POSTGRES_PASSWORD:-annotator_password}@db:5432/${POSTGRES_DB:-arab_annotators}
-      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
       VITE_APP_ID: ${VITE_APP_ID}
       OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
       VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL}
