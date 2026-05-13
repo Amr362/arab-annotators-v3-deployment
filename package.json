@@ -10,7 +10,7 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit push --config=drizzle.config.ts --force-accept-all",
+    "db:push": "drizzle-kit push --config=drizzle.config.ts --force",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "workers": "tsx server/workers/all.ts",
     "test:watch": "vitest",
