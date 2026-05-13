@@ -23,6 +23,8 @@ RUN pnpm build
 # ── Stage 2: Production ───────────────────────────────────────
 FROM node:22-alpine AS production
 
+RUN apk add --no-cache curl
+
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
@@ -43,11 +45,11 @@ COPY --from=builder /app/client/index.html ./client/index.html
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 ENV NODE_ENV=production
-ENV PORT=5000
+ENV PORT=3000
 
-EXPOSE 5000
+EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD node -e "import('http').then(http => http.get('http://localhost:5000/api/health', (r) => {if (r.statusCode !== 200) process.exit(1)}))"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
+  CMD curl -f http://localhost:${PORT:-3000}/api/health || exit 1
 
 CMD ["sh", "-c", "pnpm start"]
