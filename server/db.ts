@@ -1,4 +1,4 @@
-import { eq, and, sql, desc, count, inArray } from "drizzle-orm";
+import { eq, and, sql, desc, count, inArray, ne, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { InsertUser, users, projects, tasks, annotations, qaReviews, statistics, notifications, llmSuggestions } from "../drizzle/schema";
@@ -252,7 +252,7 @@ export async function getQAStats(reviewerId: number) {
 export async function approveAnnotation(annotationId: number, reviewerId: number, feedback?: string) {
   const db = await getDb(); if (!db) throw new Error("DB offline");
   await db.insert(qaReviews).values({ annotationId, reviewerId, status: "approved", feedback: feedback ?? null });
-  await db.update(annotations).set({ status: "approved", updatedAt: new Date() }).where(eq(annotations.id, annotationId));
+  await db.update(annotations).set({ status: "approved" as const, updatedAt: new Date() }).where(eq(annotations.id, annotationId));
   const ann = await db.select().from(annotations).where(eq(annotations.id, annotationId)).limit(1);
   if (ann[0]) {
     await db.update(tasks).set({ status: "approved", updatedAt: new Date() }).where(eq(tasks.id, ann[0].taskId));
@@ -264,15 +264,15 @@ export async function approveAnnotation(annotationId: number, reviewerId: number
 export async function rejectAnnotation(annotationId: number, reviewerId: number, feedback?: string) {
   const db = await getDb(); if (!db) throw new Error("DB offline");
   await db.insert(qaReviews).values({ annotationId, reviewerId, status: "rejected", feedback: feedback ?? null });
-  await db.update(annotations).set({ status: "rejected", updatedAt: new Date() }).where(eq(annotations.id, annotationId));
+  await db.update(annotations).set({ status: "rejected" as const, updatedAt: new Date() }).where(eq(annotations.id, annotationId));
   const ann = await db.select().from(annotations).where(eq(annotations.id, annotationId)).limit(1);
   if (ann[0]) await db.update(tasks).set({ status: "rejected", updatedAt: new Date() }).where(eq(tasks.id, ann[0].taskId));
 }
 
 export async function submitAnnotation(taskId: number, userId: number, result: any, confidence: number) {
   const db = await getDb(); if (!db) throw new Error("DB offline");
-  await db.insert(annotations).values({ taskId, userId, result, confidence, status: "pending_review" });
-  await db.update(tasks).set({ status: "submitted", updatedAt: new Date() }).where(eq(tasks.id, taskId));
+  await db.insert(annotations).values({ taskId, userId, result, confidence: confidence.toString() as any, status: "pending_review" as const });
+  await db.update(tasks).set({ status: "submitted" as const, updatedAt: new Date() }).where(eq(tasks.id, taskId));
   const task = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   if (task[0]) await db.execute(sql`UPDATE projects SET "completedItems" = "completedItems" + 1, "updatedAt" = NOW() WHERE id = ${task[0].projectId}`);
 }
@@ -315,7 +315,7 @@ export async function createProjectWithTasks(data: {
       const taskValues = data.taskContents.map(content => ({
         projectId: project.id,
         content,
-        status: "pending",
+        status: "pending" as const,
       }));
       // Insert in chunks if too many tasks
       const chunkSize = 100;
