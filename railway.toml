@@ -5,8 +5,8 @@ dockerfilePath = "Dockerfile"
 [deploy]
 startCommand = "pnpm start"
 healthcheckPath = "/api/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
 
 [env]
 NODE_ENV = "production"
-PORT = "3000"
+PORT = "5000"

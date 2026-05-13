@@ -31,7 +31,7 @@ export async function getDb() {
         max: 10,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
-        ssl: (ENV.isProduction || isSupabase) ? { rejectUnauthorized: false } : false,
+        ssl: (ENV.isProduction || isSupabase || connectionString.includes('pooler')) ? { rejectUnauthorized: false } : false,
         // Add keepalive for Supabase Pooler stability
         keepAlive: true,
       });

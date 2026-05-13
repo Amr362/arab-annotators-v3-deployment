@@ -14,7 +14,7 @@
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | ✅ | PostgreSQL connection string (auto-set by Railway plugin) |
+| `DATABASE_URL` | ✅ | PostgreSQL connection string (e.g. Supabase Pooler port 6543) |
 | `SESSION_SECRET` | ✅ | Random string ≥ 32 chars for session signing |
 | `PORT` | Auto | Set by Railway — defaults to 5000 |
 | `NODE_ENV` | Auto | Set to `production` in railway.toml |
