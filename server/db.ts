@@ -14,17 +14,20 @@ export async function getDb() {
   const dbUrl = ENV.databaseUrl;
 
   if (!dbUrl) {
-    console.error("[Database] CRITICAL: DATABASE_URL is missing!");
+    console.error("[Database] CRITICAL: DATABASE_URL is missing! (Check Railway Variables)");
     return null;
   }
+
+  console.log("[Database] Attempting to connect with URL length:", dbUrl.length);
 
   try {
     if (!_pool) {
       // Handle cases where Railway might provide a URL without protocol
       // Support for Supabase and Transaction Pooler
-      let connectionString = dbUrl;
+      let connectionString = dbUrl.trim();
+      // Ensure the protocol is correct
       if (!connectionString.startsWith('postgresql://') && !connectionString.startsWith('postgres://')) {
-        connectionString = `postgresql://${dbUrl}`;
+        connectionString = `postgresql://${connectionString}`;
       }
 
       const isSupabase = connectionString.includes('supabase.com');
