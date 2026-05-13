@@ -149,17 +149,39 @@ function vitePluginManusDebugCollector(): Plugin {
 // Configuration for plugins that are only needed in development
 const getPlugins = async () => {
   const plugins = [];
+  
+  // Always try to load React and Tailwind for both dev and prod
+  try {
+    const { default: react } = await import("@vitejs/plugin-react");
+    plugins.push(react());
+  } catch (e) {
+    console.warn("React plugin failed to load:", e);
+  }
+  
+  try {
+    const { default: tailwindcss } = await import("@tailwindcss/vite");
+    plugins.push(tailwindcss());
+  } catch (e) {
+    console.warn("Tailwind plugin failed to load:", e);
+  }
+  
+  // Development-only plugins
   if (process.env.NODE_ENV !== "production") {
     try {
       const { jsxLocPlugin } = await import("@builder.io/vite-plugin-jsx-loc");
-      const { default: tailwindcss } = await import("@tailwindcss/vite");
-      const { default: react } = await import("@vitejs/plugin-react");
-      const { vitePluginManusRuntime } = await import("vite-plugin-manus-runtime");
-      plugins.push(react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime());
+      plugins.push(jsxLocPlugin());
     } catch (e) {
-      console.warn("Development plugins failed to load:", e);
+      console.warn("JSX Loc plugin failed to load:", e);
+    }
+    
+    try {
+      const { vitePluginManusRuntime } = await import("vite-plugin-manus-runtime");
+      plugins.push(vitePluginManusRuntime());
+    } catch (e) {
+      console.warn("Manus Runtime plugin failed to load:", e);
     }
   }
+  
   plugins.push(vitePluginManusDebugCollector());
   return plugins;
 };
@@ -190,10 +212,11 @@ export default defineConfig(async () => ({
       ".manusvm.computer",
       "localhost",
       "127.0.0.1",
+      "0.0.0.0",
     ],
     fs: {
-      strict: true,
-      deny: ["**/.*"],
+      strict: false,
+      deny: [],
     },
   },
 }));

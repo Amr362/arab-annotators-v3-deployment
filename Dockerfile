@@ -40,6 +40,7 @@ COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder /app/vite.config.ts ./vite.config.ts
 COPY --from=builder /app/client/index.html ./client/index.html
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 ENV NODE_ENV=production
 ENV PORT=3000

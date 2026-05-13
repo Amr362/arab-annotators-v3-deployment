@@ -191,19 +191,13 @@ async function startServer() {
   // ── Background workers (v4) ──────────────────────────────────────────────
   startAllWorkers();
 
-  // ── Health check endpoint ──────────────────────────────────────────────────
-  app.get("/api/health", (_req, res) => {
-    res.json({
-      status: "ok",
-      version: "4.0.0",
-      timestamp: new Date().toISOString(),
-      uptime: Math.round(process.uptime()),
-    });
-  });
+  // ── Health check endpoint (duplicate removed, already defined above) ──────────
+  // Removed duplicate health check endpoint
 
-  const port = parseInt(process.env.PORT || "3000");
+  const port = parseInt(process.env.PORT || "3000", 10);
   server.listen(port, "0.0.0.0", () => {
     console.log(`✅ Server running on port ${port} (NODE_ENV: ${process.env.NODE_ENV})`);
+    console.log(`📍 Available at http://0.0.0.0:${port}`);
   });
 }
 
