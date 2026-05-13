@@ -1,44 +1,10 @@
-DO $$ BEGIN
- CREATE TYPE "public"."annotation_status" AS ENUM('pending_review', 'approved', 'rejected');
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-DO $$ BEGIN
- CREATE TYPE "public"."notification_type" AS ENUM('progress', 'quality_alert', 'system', 'review_request');
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-DO $$ BEGIN
- CREATE TYPE "public"."project_status" AS ENUM('active', 'paused', 'completed');
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-DO $$ BEGIN
- CREATE TYPE "public"."qa_status" AS ENUM('approved', 'rejected', 'needs_revision');
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-DO $$ BEGIN
- CREATE TYPE "public"."role" AS ENUM('user', 'admin', 'manager', 'tasker', 'qa');
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-DO $$ BEGIN
- CREATE TYPE "public"."task_status" AS ENUM('pending', 'in_progress', 'submitted', 'approved', 'rejected', 'assigned', 'CREATED', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 'IN_QA', 'APPROVED', 'REJECTED', 'EXPIRED');
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-ALTER TYPE "public"."task_status" ADD VALUE IF NOT EXISTS 'assigned';
---> statement-breakpoint
-ALTER TYPE "public"."task_status" ADD VALUE IF NOT EXISTS 'in_progress';
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "annotations" (
+CREATE TYPE "public"."annotation_status" AS ENUM('pending_review', 'approved', 'rejected');--> statement-breakpoint
+CREATE TYPE "public"."notification_type" AS ENUM('progress', 'quality_alert', 'system', 'review_request');--> statement-breakpoint
+CREATE TYPE "public"."project_status" AS ENUM('active', 'paused', 'completed');--> statement-breakpoint
+CREATE TYPE "public"."qa_status" AS ENUM('approved', 'rejected', 'needs_revision');--> statement-breakpoint
+CREATE TYPE "public"."role" AS ENUM('user', 'admin', 'manager', 'tasker', 'qa');--> statement-breakpoint
+CREATE TYPE "public"."task_status" AS ENUM('pending', 'in_progress', 'submitted', 'approved', 'rejected', 'assigned', 'CREATED', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 'IN_QA', 'APPROVED', 'REJECTED', 'EXPIRED');--> statement-breakpoint
+CREATE TABLE "annotations" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "annotations_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"taskId" integer NOT NULL,
 	"userId" integer NOT NULL,
@@ -56,7 +22,7 @@ CREATE TABLE IF NOT EXISTS "annotations" (
 	"submittedAt" timestamp
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "batches" (
+CREATE TABLE "batches" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"project_id" integer NOT NULL,
 	"name" text NOT NULL,
@@ -68,7 +34,7 @@ CREATE TABLE IF NOT EXISTS "batches" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "iaa_scores" (
+CREATE TABLE "iaa_scores" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"project_id" integer NOT NULL,
 	"annotator1_id" integer,
@@ -80,7 +46,7 @@ CREATE TABLE IF NOT EXISTS "iaa_scores" (
 	"computed_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "llm_suggestions" (
+CREATE TABLE "llm_suggestions" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "llm_suggestions_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"taskId" integer NOT NULL,
 	"suggestion" jsonb,
@@ -89,7 +55,7 @@ CREATE TABLE IF NOT EXISTS "llm_suggestions" (
 	"createdAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "notifications" (
+CREATE TABLE "notifications" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "notifications_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"userId" integer NOT NULL,
 	"projectId" integer,
@@ -100,7 +66,7 @@ CREATE TABLE IF NOT EXISTS "notifications" (
 	"createdAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "project_assignments" (
+CREATE TABLE "project_assignments" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"project_id" integer NOT NULL,
 	"user_id" integer NOT NULL,
@@ -109,7 +75,7 @@ CREATE TABLE IF NOT EXISTS "project_assignments" (
 	"assigned_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "projects" (
+CREATE TABLE "projects" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "projects_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"name" text NOT NULL,
 	"description" text,
@@ -131,7 +97,7 @@ CREATE TABLE IF NOT EXISTS "projects" (
 	"updatedAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "qa_reviews" (
+CREATE TABLE "qa_reviews" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "qa_reviews_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"annotationId" integer NOT NULL,
 	"reviewerId" integer NOT NULL,
@@ -141,7 +107,7 @@ CREATE TABLE IF NOT EXISTS "qa_reviews" (
 	"updatedAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "statistics" (
+CREATE TABLE "statistics" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "statistics_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"projectId" integer NOT NULL,
 	"userId" integer,
@@ -154,7 +120,7 @@ CREATE TABLE IF NOT EXISTS "statistics" (
 	"updatedAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "task_skips" (
+CREATE TABLE "task_skips" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "task_skips_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"taskId" integer NOT NULL,
 	"userId" integer NOT NULL,
@@ -162,7 +128,7 @@ CREATE TABLE IF NOT EXISTS "task_skips" (
 	"createdAt" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "task_transitions" (
+CREATE TABLE "task_transitions" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"task_id" integer NOT NULL,
 	"from_status" text NOT NULL,
@@ -172,7 +138,7 @@ CREATE TABLE IF NOT EXISTS "task_transitions" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "tasks" (
+CREATE TABLE "tasks" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "tasks_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"projectId" integer NOT NULL,
 	"labelStudioTaskId" integer,
@@ -192,7 +158,7 @@ CREATE TABLE IF NOT EXISTS "tasks" (
 	"requiredSkillLevel" integer DEFAULT 1 NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "users" (
+CREATE TABLE "users" (
 	"id" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "users_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"openId" varchar(64) NOT NULL,
 	"name" text,
@@ -215,7 +181,7 @@ CREATE TABLE IF NOT EXISTS "users" (
 	CONSTRAINT "users_openId_unique" UNIQUE("openId")
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "worker_metrics" (
+CREATE TABLE "worker_metrics" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"user_id" integer NOT NULL,
 	"project_id" integer NOT NULL,

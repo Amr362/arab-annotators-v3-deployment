@@ -1,5 +1,5 @@
 {
-  "id": "6c283982-9590-44c3-aefc-96665e1bdf4f",
+  "id": "a833e11d-4c9b-4673-940a-5fe480bb9866",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1317,6 +1317,7 @@
         "submitted",
         "approved",
         "rejected",
+        "assigned",
         "CREATED",
         "ASSIGNED",
         "IN_PROGRESS",
