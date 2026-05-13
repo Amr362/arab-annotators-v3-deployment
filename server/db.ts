@@ -25,12 +25,13 @@ export async function getDb() {
         ? dbUrl 
         : `postgresql://${dbUrl}`;
 
+      const isSupabase = connectionString.includes('supabase.com');
       _pool = new pg.Pool({
         connectionString,
         max: 10,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
-        ssl: ENV.isProduction ? { rejectUnauthorized: false } : false
+        ssl: (ENV.isProduction || isSupabase) ? { rejectUnauthorized: false } : false
       });
 
       _pool.on('error', (err) => {
