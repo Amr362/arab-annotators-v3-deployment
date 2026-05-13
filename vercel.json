@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "public": true,
+  "github": {
+    "silent": true,
+    "autoJobCancel": true
+  },
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "destination": "https://arab-annotators-v3-deployment-production.up.railway.app/$1",
+      "permanent": false
+    }
+  ]
+}
