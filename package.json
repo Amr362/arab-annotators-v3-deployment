@@ -6,11 +6,11 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
     "build": "vite build && esbuild server/_core/index.ts --platform=node --bundle --format=esm --outdir=dist --packages=external --external:vite --external:@builder.io/vite-plugin-jsx-loc --external:@tailwindcss/vite --external:@vitejs/plugin-react --external:vite-plugin-manus-runtime --external:dotenv --external:express --external:@trpc/server --external:drizzle-orm --external:mysql2 --external:pg",
-    "start": "pnpm db:push && NODE_ENV=production node dist/index.js",
+    "start": "pnpm db:push --force && NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit push --config=drizzle.config.ts",
+    "db:push": "drizzle-kit push --config=drizzle.config.ts --force-accept-all",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "workers": "tsx server/workers/all.ts",
     "test:watch": "vitest",

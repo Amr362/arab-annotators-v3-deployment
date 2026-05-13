@@ -43,11 +43,11 @@ COPY --from=builder /app/client/index.html ./client/index.html
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=5000
 
-EXPOSE 3000
+EXPOSE 5000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD node -e "import('http').then(http => http.get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) process.exit(1)}))"
+  CMD node -e "import('http').then(http => http.get('http://localhost:5000/api/health', (r) => {if (r.statusCode !== 200) process.exit(1)}))"
 
-CMD ["sh", "-c", "pnpm db:migrate && node dist/index.js"]
+CMD ["sh", "-c", "pnpm start"]
