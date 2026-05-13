@@ -1,15 +1,36 @@
 {
   "version": 2,
-  "public": true,
-  "github": {
-    "silent": true,
-    "autoJobCancel": true
-  },
-  "redirects": [
+  "builds": [
     {
-      "source": "/(.*)",
-      "destination": "https://arab-annotators-v3-deployment-production.up.railway.app/$1",
-      "permanent": false
+      "src": "api/index.ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist/public"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "api/index.ts"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "/assets/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "*/10 * * * *"
     }
   ]
 }
