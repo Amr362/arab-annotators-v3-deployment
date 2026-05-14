@@ -1,27 +1,7 @@
-/**
- * IAAWorker — v4 (Enhanced)
- * ───────────────────────────
- * Computes Inter-Annotator Agreement (IAA) scores and stores them in iaa_scores.
- *
- * Computed metrics:
- *   - Cohen's Kappa (pairwise, for 2 annotators)
- *   - Fleiss' Kappa (multi-annotator, for 3+ annotators)
- *   - Raw agreement percentage
- *
- * Runs on a scheduled interval (every 5 minutes by default).
- * Can also be triggered on-demand via the manager router.
- *
- * Enhancements:
- *   - Better error handling and validation
- *   - Cleanup of old IAA scores
- *   - Improved logging
- *   - Edge case handling
- *   - Performance optimizations
- */
-
 import { eq, and, sql, desc } from "drizzle-orm";
 import { getDb } from "../db";
 import { annotations, tasks, iaaScores } from "../../drizzle/schema";
+import { invokeLLM } from "../_core/llm";
 
 const IAA_INTERVAL_MS = 5 * 60_000; // 5 minutes
 const MIN_TASKS_FOR_IAA = 5; // Minimum tasks needed for meaningful IAA
@@ -37,6 +17,47 @@ function log(level: "info" | "warn" | "error", message: string, data?: any): voi
     console.log(`${prefix} ${timestamp} ${message}`, data);
   } else {
     console.log(`${prefix} ${timestamp} ${message}`);
+  }
+}
+
+// ─── LLM Semantic Comparison ──────────────────────────────────────────────────
+
+/**
+ * Use LLM to semantically compare two labels/results and return a confidence score.
+ * Returns a confidence score between 0 and 1, or null if comparison fails.
+ */
+async function llmSemanticCompareLabels(
+  taskContent: string,
+  label1: string,
+  label2: string
+): Promise<number | null> {
+  try {
+    const prompt = `Given the task content: "${taskContent}", are these two labels semantically equivalent? Provide a confidence score between 0 and 1, where 1 means perfectly equivalent and 0 means completely different. Only output the score as a number.
+
+Label 1: ${label1}
+Label 2: ${label2}
+
+Confidence Score:`;
+
+    const response = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 10,
+      responseFormat: { type: "text" },
+    });
+
+    const scoreText = response.choices[0]?.message?.content;
+    if (typeof scoreText === "string") {
+      const score = parseFloat(scoreText.trim());
+      if (!isNaN(score) && score >= 0 && score <= 1) {
+        return score;
+      }
+    }
+    log("warn", "LLM returned invalid score for semantic comparison", { scoreText });
+    return null;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    log("error", "LLM semantic comparison failed", { error: errorMsg });
+    return null;
   }
 }
 
@@ -256,6 +277,7 @@ export async function computeIAAForProject(projectId: number): Promise<void> {
         taskId: annotations.taskId,
         userId: annotations.userId,
         result: annotations.result,
+        taskContent: tasks.content, // Fetch task content for LLM
       })
       .from(annotations)
       .innerJoin(tasks, eq(annotations.taskId, tasks.id))
@@ -274,7 +296,7 @@ export async function computeIAAForProject(projectId: number): Promise<void> {
     }
 
     // Group by task
-    const byTask: Record<number, { userId: number; label: string }[]> = {};
+    const byTask: Record<number, { userId: number; label: string; rawResult: any; taskContent: string }[]> = {};
     for (const row of rows) {
       try {
         const result = row.result as any;
@@ -295,7 +317,7 @@ export async function computeIAAForProject(projectId: number): Promise<void> {
         }
 
         if (!byTask[row.taskId]) byTask[row.taskId] = [];
-        byTask[row.taskId].push({ userId: row.userId, label: labelStr });
+        byTask[row.taskId].push({ userId: row.userId, label: labelStr, rawResult: result, taskContent: row.taskContent ?? "" });
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         log("warn", `Failed to process annotation for task ${row.taskId}`, { error: errorMsg });
@@ -346,9 +368,24 @@ export async function computeIAAForProject(projectId: number): Promise<void> {
             return ann?.label ?? "unknown";
           });
 
+          const taskContentsForLLM = sharedTaskIds.map(tid => {
+            const ann = byTask[Number(tid)].find(a => a.userId === a1); // Assuming task content is same for both annotators on same task
+            return ann?.taskContent ?? "";
+          });
+
           const kappa = computeCohensKappa(labels1, labels2);
           const agreed = labels1.filter((l, idx) => l === labels2[idx]).length;
           const agreementPct = (agreed / sharedTaskIds.length) * 100;
+
+          // LLM-based semantic agreement
+          let llmSemanticAgreementCount = 0;
+          for (let k = 0; k < sharedTaskIds.length; k++) {
+            const llmScore = await llmSemanticCompareLabels(taskContentsForLLM[k], labels1[k], labels2[k]);
+            if (llmScore !== null && llmScore >= 0.7) { // Threshold for semantic agreement
+              llmSemanticAgreementCount++;
+            }
+          }
+          const llmSemanticAgreementPct = (llmSemanticAgreementCount / sharedTaskIds.length) * 100;
 
           await db.insert(iaaScores).values({
             projectId,
@@ -356,6 +393,7 @@ export async function computeIAAForProject(projectId: number): Promise<void> {
             annotator2Id: a2,
             kappaCohens: kappa.toFixed(4),
             agreementPct: agreementPct.toFixed(2),
+            llmSemanticAgreementPct: llmSemanticAgreementPct.toFixed(2), // New field
             taskCount: sharedTaskIds.length,
             computedAt: new Date(),
           });
@@ -382,11 +420,29 @@ export async function computeIAAForProject(projectId: number): Promise<void> {
 
         const fleiss = computeFleissKappa(taskLabelsMap);
 
+        // LLM-based semantic agreement for Fleiss' Kappa (simplified for now)
+        // This would require a more complex LLM prompt to compare multiple labels
+        // For simplicity, we'll just average pairwise semantic agreement if available
+        let totalLlmSemanticAgreementPct = 0;
+        let llmPairwiseScoresCount = 0;
+        const existingPairwiseScores = await db.select({ llmSemanticAgreementPct: iaaScores.llmSemanticAgreementPct })
+          .from(iaaScores)
+          .where(and(eq(iaaScores.projectId, projectId), sql`${iaaScores.annotator1Id} IS NOT NULL`));
+        
+        for (const score of existingPairwiseScores) {
+          if (score.llmSemanticAgreementPct) {
+            totalLlmSemanticAgreementPct += parseFloat(score.llmSemanticAgreementPct);
+            llmPairwiseScoresCount++;
+          }
+        }
+        const fleissLlmSemanticAgreementPct = llmPairwiseScoresCount > 0 ? (totalLlmSemanticAgreementPct / llmPairwiseScoresCount) : null;
+
         await db.insert(iaaScores).values({
           projectId,
           annotator1Id: null,
           annotator2Id: null,
           fleissKappa: fleiss.toFixed(4),
+          llmSemanticAgreementPct: fleissLlmSemanticAgreementPct ? fleissLlmSemanticAgreementPct.toFixed(2) : null, // New field
           taskCount: multiAnnotatedTaskIds.length,
           computedAt: new Date(),
         });
@@ -447,11 +503,7 @@ export async function runIAAForAllProjects(): Promise<void> {
       }
     }
 
-    log("info", `IAA computation completed`, {
-      total: allProjects.length,
-      success: successCount,
-      errors: errorCount,
-    });
+    log("info", `Completed IAA computation for ${allProjects.length} projects. Success: ${successCount}, Errors: ${errorCount}`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     log("error", "Failed to run IAA for all projects", {
@@ -463,33 +515,18 @@ export async function runIAAForAllProjects(): Promise<void> {
 
 export function startIAAWorker(): void {
   if (_iaaIntervalId) {
-    log("warn", "IAA worker already running");
+    log("warn", "IAA Worker already started.");
     return;
   }
-
-  log("info", "Starting IAA worker — recompute every 5 minutes");
-  
-  // Run immediately on startup
-  runIAAForAllProjects().catch(e => {
-    const errorMsg = e instanceof Error ? e.message : String(e);
-    log("error", "Initial IAA run failed", { error: errorMsg });
-  });
-
-  // Then run on interval
-  _iaaIntervalId = setInterval(async () => {
-    try {
-      await runIAAForAllProjects();
-    } catch (e) {
-      const errorMsg = e instanceof Error ? e.message : String(e);
-      log("error", "IAA worker interval execution failed", { error: errorMsg });
-    }
-  }, IAA_INTERVAL_MS);
+  log("info", "Starting IAA Worker...");
+  runIAAForAllProjects(); // Run immediately on startup
+  _iaaIntervalId = setInterval(runIAAForAllProjects, IAA_INTERVAL_MS);
 }
 
 export function stopIAAWorker(): void {
   if (_iaaIntervalId) {
+    log("info", "Stopping IAA Worker...");
     clearInterval(_iaaIntervalId);
     _iaaIntervalId = null;
-    log("info", "IAA worker stopped");
   }
 }

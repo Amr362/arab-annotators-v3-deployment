@@ -1,23 +1,7 @@
-/**
- * Honey Pot Checker — v4 (Enhanced)
- * ──────────────────────────────────
- * Compares a worker's annotation result against the task's stored
- * honeyPotAnswer. Returns true if the worker got it right.
- *
- * Supports:
- *   - Simple label/choice match (classification tasks)
- *   - Array label intersection (multi-label tasks)
- *
- * Enhancements:
- *   - Better error handling and logging
- *   - Metrics tracking
- *   - Improved edge case handling
- *   - Batch operations support
- */
-
 import { eq, and } from "drizzle-orm";
 import { getDb } from "../db";
 import { tasks, annotations } from "../../drizzle/schema";
+import { invokeLLM } from "../_core/llm";
 
 // ─── Logging utilities ────────────────────────────────────────────────────────
 
@@ -39,6 +23,9 @@ interface HoneyPotMetrics {
   passed: number;
   failed: number;
   errors: number;
+  aiChecks: number;
+  aiPassed: number;
+  aiFailed: number;
 }
 
 const metrics: HoneyPotMetrics = {
@@ -46,6 +33,9 @@ const metrics: HoneyPotMetrics = {
   passed: 0,
   failed: 0,
   errors: 0,
+  aiChecks: 0,
+  aiPassed: 0,
+  aiFailed: 0,
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -144,6 +134,45 @@ function extractAllLabels(result: unknown): string[] {
   }
 }
 
+/**
+ * Use LLM to semantically compare two annotation results.
+ * Returns a confidence score (0-1) or null if comparison fails.
+ */
+async function llmSemanticCompare(
+  taskContent: string,
+  honeyPotAnswer: unknown,
+  workerResult: unknown
+): Promise<number | null> {
+  try {
+    const prompt = `Given the task content: "${taskContent}", assess if the worker's annotation is semantically equivalent to the honey pot answer. Provide a confidence score between 0 and 1, where 1 means perfectly equivalent and 0 means completely different. Only output the score as a number.
+
+Honey Pot Answer: ${JSON.stringify(honeyPotAnswer)}
+Worker's Annotation: ${JSON.stringify(workerResult)}
+
+Confidence Score:`;
+
+    const response = await invokeLLM({
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 10,
+      responseFormat: { type: "text" },
+    });
+
+    const scoreText = response.choices[0]?.message?.content;
+    if (typeof scoreText === "string") {
+      const score = parseFloat(scoreText.trim());
+      if (!isNaN(score) && score >= 0 && score <= 1) {
+        return score;
+      }
+    }
+    log("warn", "LLM returned invalid score", { scoreText });
+    return null;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    log("error", "LLM semantic comparison failed", { error: errorMsg });
+    return null;
+  }
+}
+
 // ─── Core honey pot check ──────────────────────────────────────────────────────
 
 /**
@@ -154,6 +183,7 @@ function extractAllLabels(result: unknown): string[] {
  *   - Better error handling
  *   - Improved logging
  *   - Metrics tracking
+ *   - LLM-based semantic comparison for nuanced checks
  */
 export async function checkHoneyPot(taskId: number): Promise<boolean> {
   const db = await getDb();
@@ -164,12 +194,14 @@ export async function checkHoneyPot(taskId: number): Promise<boolean> {
   }
 
   try {
-    // Get the task's honey pot answer
+    // Get the task's honey pot answer and content
     const taskRows = await db
-      .select({ 
-        honeyPotAnswer: tasks.honeyPotAnswer, 
+      .select({
+        honeyPotAnswer: tasks.honeyPotAnswer,
         isHoneyPot: tasks.isHoneyPot,
         id: tasks.id,
+        content: tasks.content, // Fetch task content for LLM
+        aiHoneyPotCheckEnabled: tasks.aiHoneyPotCheckEnabled, // New flag
       })
       .from(tasks)
       .where(eq(tasks.id, taskId))
@@ -196,7 +228,7 @@ export async function checkHoneyPot(taskId: number): Promise<boolean> {
 
     // Get the most recent non-draft annotation for this task
     const annRows = await db
-      .select({ 
+      .select({
         result: annotations.result,
         userId: annotations.userId,
         id: annotations.id,
@@ -218,68 +250,94 @@ export async function checkHoneyPot(taskId: number): Promise<boolean> {
       return false;
     }
 
-    // Extract labels
+    let passed = false;
+
+    // Try exact single-label match first
     const gtLabel = extractLabel(task.honeyPotAnswer);
     const workerLabel = extractLabel(ann.result);
 
-    // Exact single-label match
     if (gtLabel && workerLabel) {
-      const passed = gtLabel === workerLabel;
-      metrics.checked++;
+      passed = gtLabel === workerLabel;
       if (passed) {
+        metrics.checked++;
         metrics.passed++;
-      } else {
-        metrics.failed++;
+        log("info", `Honey pot check (exact match): task ${taskId} PASSED`, {
+          taskId,
+          userId: ann.userId,
+          expected: gtLabel,
+          actual: workerLabel,
+        });
+        return true;
       }
-      
-      log("info", `Honey pot check: task ${taskId}`, {
-        taskId,
-        userId: ann.userId,
-        passed,
-        expected: gtLabel,
-        actual: workerLabel,
-      });
-      
-      return passed;
     }
 
-    // Multi-label: require at least 80% overlap
+    // If not an exact single-label match, try multi-label overlap
     const gtLabels = extractAllLabels(task.honeyPotAnswer);
     const workerLabels = extractAllLabels(ann.result);
 
-    if (gtLabels.length === 0) {
-      log("warn", `Task ${taskId} has no extractable ground truth labels`);
-      metrics.errors++;
-      return false;
+    if (gtLabels.length > 0 && workerLabels.length > 0) {
+      const intersection = gtLabels.filter(l => workerLabels.includes(l));
+      const overlap = intersection.length / gtLabels.length;
+      passed = overlap >= 0.8; // Still use 80% overlap for multi-label
+
+      if (passed) {
+        metrics.checked++;
+        metrics.passed++;
+        log("info", `Honey pot check (multi-label overlap): task ${taskId} PASSED`, {
+          taskId,
+          userId: ann.userId,
+          overlap: (overlap * 100).toFixed(2) + "%",
+          expectedLabels: gtLabels,
+          actualLabels: workerLabels,
+        });
+        return true;
+      }
     }
 
-    if (workerLabels.length === 0) {
-      log("warn", `Task ${taskId} has no extractable worker labels`);
-      metrics.failed++;
-      metrics.checked++;
-      return false;
+    // If still not passed and AI check is enabled, use LLM for semantic comparison
+    if (!passed && task.aiHoneyPotCheckEnabled) {
+      metrics.aiChecks++;
+      log("info", `Performing AI semantic check for honey pot task ${taskId}`);
+      const confidence = await llmSemanticCompare(task.content ?? "", task.honeyPotAnswer, ann.result);
+      
+      if (confidence !== null) {
+        // Define a threshold for AI-based pass
+        const AI_PASS_THRESHOLD = 0.7; 
+        passed = confidence >= AI_PASS_THRESHOLD;
+
+        if (passed) {
+          metrics.aiPassed++;
+          log("info", `Honey pot check (AI semantic): task ${taskId} PASSED`, {
+            taskId,
+            userId: ann.userId,
+            confidence: confidence.toFixed(2),
+          });
+        } else {
+          metrics.aiFailed++;
+          log("info", `Honey pot check (AI semantic): task ${taskId} FAILED`, {
+            taskId,
+            userId: ann.userId,
+            confidence: confidence.toFixed(2),
+          });
+        }
+      } else {
+        log("warn", `AI semantic check failed for task ${taskId}, defaulting to failed`);
+        passed = false; // If AI check fails, consider it a failure
+      }
     }
 
-    const intersection = gtLabels.filter(l => workerLabels.includes(l));
-    const overlap = intersection.length / gtLabels.length;
-    const passed = overlap >= 0.8;
-
+    // If none of the checks passed
     metrics.checked++;
-    if (passed) {
-      metrics.passed++;
-    } else {
+    if (!passed) {
       metrics.failed++;
+      log("info", `Honey pot check: task ${taskId} FAILED`, {
+        taskId,
+        userId: ann.userId,
+        expected: gtLabel || JSON.stringify(gtLabels),
+        actual: workerLabel || JSON.stringify(workerLabels),
+        aiCheckAttempted: task.aiHoneyPotCheckEnabled,
+      });
     }
-
-    log("info", `Honey pot check (multi-label): task ${taskId}`, {
-      taskId,
-      userId: ann.userId,
-      passed,
-      overlap: (overlap * 100).toFixed(2) + "%",
-      expectedLabels: gtLabels,
-      actualLabels: workerLabels,
-      intersection,
-    });
 
     return passed;
   } catch (error) {
@@ -374,5 +432,8 @@ export function resetMetrics(): void {
   metrics.passed = 0;
   metrics.failed = 0;
   metrics.errors = 0;
+  metrics.aiChecks = 0;
+  metrics.aiPassed = 0;
+  metrics.aiFailed = 0;
   log("info", "Metrics reset");
 }

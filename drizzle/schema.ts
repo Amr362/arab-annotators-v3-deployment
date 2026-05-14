@@ -138,6 +138,7 @@ export const tasks = pgTable("tasks", {
   expiresAt: timestamp("expiresAt"),
   mediaUrl: text("mediaUrl"),
   requiredSkillLevel: integer("requiredSkillLevel").default(1).notNull(),
+  aiHoneyPotCheckEnabled: boolean("aiHoneyPotCheckEnabled").default(false), // New field for AI-powered honey pot checks
 });
 
 export type Task = typeof tasks.$inferSelect;
@@ -305,6 +306,7 @@ export const iaaScores = pgTable("iaa_scores", {
   kappaCohens: decimal("kappa_cohen", { precision: 5, scale: 4 }),
   fleissKappa: decimal("fleiss_kappa", { precision: 5, scale: 4 }),
   agreementPct: decimal("agreement_pct", { precision: 5, scale: 2 }),
+  llmSemanticAgreementPct: decimal("llm_semantic_agreement_pct", { precision: 5, scale: 2 }), // New field for LLM-based semantic agreement
   taskCount: integer("task_count"),
   computedAt: timestamp("computed_at").defaultNow().notNull(),
 });
