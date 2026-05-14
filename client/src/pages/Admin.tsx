@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
+import { motion } from "framer-motion";
 
 type Role = "admin" | "manager" | "tasker" | "qa" | "user";
 
@@ -199,17 +200,24 @@ export default function Admin() {
               { label: "توسيمات اليوم",      value: adminStats?.todayAnnotations ?? 0,    icon: TrendingUp,   color: "text-amber-600 bg-amber-50"   },
               { label: "مقبولة إجمالاً",     value: adminStats?.approvedAnnotations ?? 0, icon: CheckCircle2, color: "text-purple-600 bg-purple-50" },
             ].map(({ label, value, icon: Icon, color }, i) => (
-              <Card key={i} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1">{label}</p>
-                      <p className="text-3xl font-bold text-gray-900">{value.toLocaleString("ar")}</p>
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: i * 0.1 }}
+              >
+                <Card className="hover:shadow-md transition-all hover:-translate-y-1 duration-300">
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">{label}</p>
+                        <p className="text-3xl font-bold text-gray-900">{value.toLocaleString("ar")}</p>
+                      </div>
+                      <div className={`p-3 rounded-xl ${color}`}><Icon size={22} /></div>
                     </div>
-                    <div className={`p-3 rounded-xl ${color}`}><Icon size={22} /></div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </motion.div>
             ))}
           </div>
 
