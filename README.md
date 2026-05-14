@@ -254,6 +254,9 @@ pnpm install
 ```
 
 ### المشكلة: خطأ في قاعدة البيانات
+⚠️ **قاعدة البيانات غير متاحة**: تأكد من إضافة متغير `DATABASE_URL` في إعدادات Railway (Variables).
+💡 **نصيحة**: يفضل استخدام رابط الاتصال من Supabase (Transaction Pooler) لضمان استقرار الاتصال وتجنب انقطاعه.
+
 ```bash
 # تحقق من الاتصال
 pnpm db:push
@@ -303,5 +306,5 @@ docker-compose restart
 
 **صُنع بـ ❤️ من قبل فريق Arab Annotators**
 
-آخر تحديث: مارس 2026
+آخر تحديث: مايو 2026 (تم إصلاح مشكلة الاتصال بقاعدة البيانات وتحسين استقرار DATABASE_URL)
 \n# Trigger Deploy: Tue Apr 21 09:40:00 EDT 2026
