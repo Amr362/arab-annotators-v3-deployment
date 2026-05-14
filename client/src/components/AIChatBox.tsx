@@ -2,29 +2,51 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { Loader2, Send, User, Sparkles, Copy, Trash2, Check } from "lucide-react";
-import { useState, useEffect, useRef, useCallback, useMemo, ErrorInfo } from "react";
+import {
+  Loader2,
+  Send,
+  User,
+  Sparkles,
+  Copy,
+  Trash2,
+  Check,
+  Search,
+  Filter,
+  Download,
+  RotateCcw,
+} from "lucide-react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  ErrorInfo,
+  ReactNode,
+} from "react";
 import { Streamdown } from "streamdown";
 
 /**
- * Message type matching server-side LLM Message interface
+ * Enhanced Message type with additional metadata
+ * @version 3.0 - Added timestamp, edited, and reactions for better tracking
  */
 export type Message = {
   role: "system" | "user" | "assistant";
   content: string;
   id?: string;
+  timestamp?: number;
+  edited?: boolean;
+  reactions?: string[];
 };
 
 export type AIChatBoxProps = {
   /**
-   * Messages array to display in the chat.
-   * Should match the format used by invokeLLM on the server.
+   * Messages array to display in the chat
    */
   messages: Message[];
 
   /**
-   * Callback when user sends a message.
-   * Typically you'll call a tRPC mutation here to invoke the LLM.
+   * Callback when user sends a message
    */
   onSendMessage: (content: string) => void;
 
@@ -32,6 +54,11 @@ export type AIChatBoxProps = {
    * Optional callback when user deletes a message
    */
   onDeleteMessage?: (messageId: string) => void;
+
+  /**
+   * Optional callback when user edits a message
+   */
+  onEditMessage?: (messageId: string, newContent: string) => void;
 
   /**
    * Whether the AI is currently generating a response
@@ -54,13 +81,12 @@ export type AIChatBoxProps = {
   height?: string | number;
 
   /**
-   * Empty state message to display when no messages
+   * Empty state message
    */
   emptyStateMessage?: string;
 
   /**
-   * Suggested prompts to display in empty state
-   * Click to send directly
+   * Suggested prompts
    */
   suggestedPrompts?: string[];
 
@@ -73,16 +99,36 @@ export type AIChatBoxProps = {
    * Callback when error is dismissed
    */
   onErrorDismiss?: () => void;
+
+  /**
+   * Enable search functionality
+   */
+  enableSearch?: boolean;
+
+  /**
+   * Enable message filtering
+   */
+  enableFilter?: boolean;
+
+  /**
+   * Enable export functionality
+   */
+  enableExport?: boolean;
+
+  /**
+   * Custom theme variant
+   */
+  variant?: "default" | "compact" | "minimal";
 };
 
 /**
- * Error boundary component for AIChatBox
+ * Enhanced Error Boundary for AIChatBox with improved error handling
  */
 class AIChatBoxErrorBoundary extends React.Component<
-  { children: React.ReactNode },
+  { children: ReactNode },
   { hasError: boolean; error: Error | null }
 > {
-  constructor(props: { children: React.ReactNode }) {
+  constructor(props: { children: ReactNode }) {
     super(props);
     this.state = { hasError: false, error: null };
   }
@@ -103,7 +149,7 @@ class AIChatBoxErrorBoundary extends React.Component<
             <p className="text-sm font-medium text-destructive mb-2">
               حدث خطأ في مكون الدردشة
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground line-clamp-2">
               {this.state.error?.message}
             </p>
             <Button
@@ -124,67 +170,44 @@ class AIChatBoxErrorBoundary extends React.Component<
 }
 
 /**
- * A production-ready AI chat box component with enhanced features.
+ * Enhanced AI Chat Box Component v3
  *
- * Features:
- * - Matches server-side Message interface for seamless integration
- * - Markdown rendering with Streamdown
- * - Auto-scrolls to latest message with smooth animation
- * - Loading states with typing indicator
- * - Copy and delete message actions
- * - Error boundary and error handling
- * - Accessibility improvements (ARIA labels, keyboard navigation)
- * - Performance optimizations (useCallback, useMemo)
- * - Dark mode support
- * - Suggested prompts in empty state
+ * Improvements:
+ * - React 19 compatible with latest hooks patterns
+ * - Better performance with memoization and optimized re-renders
+ * - Search and filter capabilities for message history
+ * - Export functionality for conversations
+ * - Enhanced accessibility with ARIA labels and keyboard navigation
+ * - Message timestamps and metadata tracking
+ * - Improved error handling and recovery
+ * - Theme variants (default, compact, minimal)
+ * - Better mobile responsiveness
+ * - Edit message support
+ * - Streamlined UI with modern design patterns
  *
  * @example
  * ```tsx
  * const ChatPage = () => {
- *   const [messages, setMessages] = useState<Message[]>([
- *     { role: "system", content: "You are a helpful assistant." }
- *   ]);
+ *   const [messages, setMessages] = useState<Message[]>([]);
  *   const [error, setError] = useState<string | null>(null);
  *
- *   const chatMutation = trpc.ai.chat.useMutation({
- *     onSuccess: (response) => {
- *       setMessages(prev => [...prev, {
- *         role: "assistant",
- *         content: response,
- *         id: crypto.randomUUID()
- *       }]);
- *     },
- *     onError: (error) => {
- *       setError(error.message);
- *     }
- *   });
- *
  *   const handleSend = (content: string) => {
- *     const newMessages = [...messages, { 
- *       role: "user", 
+ *     setMessages(prev => [...prev, {
+ *       role: "user",
  *       content,
- *       id: crypto.randomUUID()
- *     }];
- *     setMessages(newMessages);
- *     chatMutation.mutate({ messages: newMessages });
- *   };
- *
- *   const handleDelete = (messageId: string) => {
- *     setMessages(prev => prev.filter(m => m.id !== messageId));
+ *       id: crypto.randomUUID(),
+ *       timestamp: Date.now()
+ *     }]);
  *   };
  *
  *   return (
  *     <AIChatBox
  *       messages={messages}
  *       onSendMessage={handleSend}
- *       onDeleteMessage={handleDelete}
- *       isLoading={chatMutation.isPending}
- *       error={error}
- *       onErrorDismiss={() => setError(null)}
- *       suggestedPrompts={[
- *         "اشرح الحوسبة الكمية",
- *         "اكتب hello world في Python"
- *       ]}
+ *       isLoading={false}
+ *       enableSearch
+ *       enableFilter
+ *       enableExport
  *     />
  *   );
  * };
@@ -194,6 +217,7 @@ export function AIChatBox({
   messages,
   onSendMessage,
   onDeleteMessage,
+  onEditMessage,
   isLoading = false,
   placeholder = "اكتب رسالتك...",
   className,
@@ -202,21 +226,45 @@ export function AIChatBox({
   suggestedPrompts,
   error,
   onErrorDismiss,
+  enableSearch = true,
+  enableFilter = true,
+  enableExport = true,
+  variant = "default",
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterRole, setFilterRole] = useState<"all" | "user" | "assistant">(
+    "all"
+  );
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputAreaRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Filter out system messages
-  const displayMessages = useMemo(
-    () => messages.filter((msg) => msg.role !== "system"),
-    [messages]
-  );
+  // Filter and search messages with memoization
+  const displayMessages = useMemo(() => {
+    let filtered = messages.filter((msg) => msg.role !== "system");
 
-  // Calculate min-height for last assistant message to push user message to top
+    // Apply role filter
+    if (filterRole !== "all") {
+      filtered = filtered.filter((msg) => msg.role === filterRole);
+    }
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((msg) =>
+        msg.content.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
+  }, [messages, filterRole, searchQuery]);
+
   const [minHeightForLastMessage, setMinHeightForLastMessage] = useState(0);
 
   useEffect(() => {
@@ -224,18 +272,16 @@ export function AIChatBox({
       const containerHeight = containerRef.current.offsetHeight;
       const inputHeight = inputAreaRef.current.offsetHeight;
       const scrollAreaHeight = containerHeight - inputHeight;
-
       const userMessageReservedHeight = 56;
       const calculatedHeight = scrollAreaHeight - 32 - userMessageReservedHeight;
-
       setMinHeightForLastMessage(Math.max(0, calculatedHeight));
     }
   }, []);
 
-  // Scroll to bottom helper function with smooth animation
+  // Optimized scroll to bottom
   const scrollToBottom = useCallback(() => {
     const viewport = scrollAreaRef.current?.querySelector(
-      '[data-radix-scroll-area-viewport]'
+      "[data-radix-scroll-area-viewport]"
     ) as HTMLDivElement;
 
     if (viewport) {
@@ -248,7 +294,6 @@ export function AIChatBox({
     }
   }, []);
 
-  // Auto-scroll when new messages arrive
   useEffect(() => {
     scrollToBottom();
   }, [displayMessages, isLoading, scrollToBottom]);
@@ -261,8 +306,6 @@ export function AIChatBox({
 
       onSendMessage(trimmedInput);
       setInput("");
-
-      // Keep focus on input
       textareaRef.current?.focus();
     },
     [input, isLoading, onSendMessage]
@@ -300,6 +343,28 @@ export function AIChatBox({
     [onDeleteMessage]
   );
 
+  const handleEditMessage = useCallback(
+    (messageId: string) => {
+      const message = messages.find((m) => m.id === messageId);
+      if (message) {
+        setEditingId(messageId);
+        setEditContent(message.content);
+      }
+    },
+    [messages]
+  );
+
+  const handleSaveEdit = useCallback(
+    (messageId: string) => {
+      if (onEditMessage && editContent.trim()) {
+        onEditMessage(messageId, editContent);
+        setEditingId(null);
+        setEditContent("");
+      }
+    },
+    [editContent, onEditMessage]
+  );
+
   const handleSuggestedPrompt = useCallback(
     (prompt: string) => {
       onSendMessage(prompt);
@@ -307,14 +372,45 @@ export function AIChatBox({
     [onSendMessage]
   );
 
+  const handleExport = useCallback(() => {
+    const chatContent = displayMessages
+      .map((msg) => {
+        const timestamp = msg.timestamp
+          ? new Date(msg.timestamp).toLocaleString("ar-SA")
+          : "";
+        return `[${msg.role.toUpperCase()}${timestamp ? ` - ${timestamp}` : ""}]: ${msg.content}`;
+      })
+      .join("\n\n");
+
+    const element = document.createElement("a");
+    element.setAttribute(
+      "href",
+      "data:text/plain;charset=utf-8," + encodeURIComponent(chatContent)
+    );
+    element.setAttribute("download", `chat-${Date.now()}.txt`);
+    element.style.display = "none";
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  }, [displayMessages]);
+
+  const handleReset = useCallback(() => {
+    setSearchQuery("");
+    setFilterRole("all");
+  }, []);
+
+  const containerClasses = cn(
+    "flex flex-col bg-card text-card-foreground rounded-lg border shadow-sm transition-all",
+    variant === "compact" && "border-0 shadow-none",
+    variant === "minimal" && "border-0 shadow-none bg-transparent",
+    className
+  );
+
   return (
     <AIChatBoxErrorBoundary>
       <div
         ref={containerRef}
-        className={cn(
-          "flex flex-col bg-card text-card-foreground rounded-lg border shadow-sm",
-          className
-        )}
+        className={containerClasses}
         style={{ height }}
         role="region"
         aria-label="منطقة الدردشة مع الذكاء الاصطناعي"
@@ -322,7 +418,7 @@ export function AIChatBox({
         {/* Error Banner */}
         {error && (
           <div
-            className="bg-destructive/10 border-b border-destructive/20 px-4 py-3 flex items-center justify-between"
+            className="bg-destructive/10 border-b border-destructive/20 px-4 py-3 flex items-center justify-between animate-in fade-in"
             role="alert"
             aria-live="polite"
           >
@@ -334,6 +430,78 @@ export function AIChatBox({
             >
               ✕
             </button>
+          </div>
+        )}
+
+        {/* Toolbar */}
+        {(enableSearch || enableFilter || enableExport) && (
+          <div className="flex gap-2 p-3 border-b bg-muted/30 flex-wrap">
+            {enableSearch && (
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="بحث..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-sm rounded border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                  aria-label="البحث في الرسائل"
+                />
+              </div>
+            )}
+
+            {enableFilter && (
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant={filterRole === "all" ? "default" : "outline"}
+                  onClick={() => setFilterRole("all")}
+                  className="text-xs"
+                >
+                  الكل
+                </Button>
+                <Button
+                  size="sm"
+                  variant={filterRole === "user" ? "default" : "outline"}
+                  onClick={() => setFilterRole("user")}
+                  className="text-xs"
+                >
+                  أنت
+                </Button>
+                <Button
+                  size="sm"
+                  variant={filterRole === "assistant" ? "default" : "outline"}
+                  onClick={() => setFilterRole("assistant")}
+                  className="text-xs"
+                >
+                  الذكاء الاصطناعي
+                </Button>
+              </div>
+            )}
+
+            {(searchQuery || filterRole !== "all") && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleReset}
+                className="text-xs"
+                aria-label="إعادة تعيين الفلاتر"
+              >
+                <RotateCcw className="size-3.5" />
+              </Button>
+            )}
+
+            {enableExport && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleExport}
+                className="text-xs"
+                aria-label="تصدير المحادثة"
+              >
+                <Download className="size-3.5" />
+              </Button>
+            )}
           </div>
         )}
 
@@ -354,7 +522,7 @@ export function AIChatBox({
                         key={index}
                         onClick={() => handleSuggestedPrompt(prompt)}
                         disabled={isLoading}
-                        className="rounded-lg border border-border bg-card px-4 py-2 text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-lg border border-border bg-card px-4 py-2 text-sm transition-all hover:bg-accent hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                         aria-label={`الاقتراح: ${prompt}`}
                       >
                         {prompt}
@@ -372,12 +540,13 @@ export function AIChatBox({
                   const isLastMessage = index === displayMessages.length - 1;
                   const shouldApplyMinHeight =
                     isLastMessage && !isLoading && minHeightForLastMessage > 0;
+                  const isEditing = editingId === messageId;
 
                   return (
                     <div
                       key={messageId}
                       className={cn(
-                        "flex gap-3 group",
+                        "flex gap-3 group animate-in fade-in slide-in-from-bottom-2",
                         message.role === "user"
                           ? "justify-end items-start"
                           : "justify-start items-start"
@@ -400,54 +569,102 @@ export function AIChatBox({
 
                       <div
                         className={cn(
-                          "max-w-[80%] rounded-lg px-4 py-2.5 relative group/message",
+                          "max-w-[80%] rounded-lg px-4 py-2.5 relative group/message transition-all",
                           message.role === "user"
                             ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-foreground"
+                            : "bg-muted text-foreground",
+                          isEditing && "ring-2 ring-primary"
                         )}
                       >
-                        {message.role === "assistant" ? (
-                          <div className="prose prose-sm dark:prose-invert max-w-none">
-                            <Streamdown>{message.content}</Streamdown>
+                        {isEditing ? (
+                          <div className="space-y-2">
+                            <Textarea
+                              value={editContent}
+                              onChange={(e) => setEditContent(e.target.value)}
+                              className="min-h-[60px] resize-none"
+                            />
+                            <div className="flex gap-2 justify-end">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setEditingId(null);
+                                  setEditContent("");
+                                }}
+                              >
+                                إلغاء
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleSaveEdit(messageId)}
+                              >
+                                حفظ
+                              </Button>
+                            </div>
                           </div>
                         ) : (
-                          <p className="whitespace-pre-wrap text-sm">
-                            {message.content}
-                          </p>
+                          <>
+                            {message.role === "assistant" ? (
+                              <div className="prose prose-sm dark:prose-invert max-w-none">
+                                <Streamdown>{message.content}</Streamdown>
+                              </div>
+                            ) : (
+                              <p className="whitespace-pre-wrap text-sm">
+                                {message.content}
+                              </p>
+                            )}
+                            {message.edited && (
+                              <p className="text-xs opacity-60 mt-1">
+                                (معدل)
+                              </p>
+                            )}
+                          </>
                         )}
 
                         {/* Message Actions */}
-                        <div className="absolute -right-12 top-0 flex gap-1 opacity-0 group-hover/message:opacity-100 transition-opacity">
-                          <button
-                            onClick={() =>
-                              handleCopyMessage(message.content, messageId)
-                            }
-                            className={cn(
-                              "p-1 rounded hover:bg-accent transition-colors",
-                              copiedId === messageId
-                                ? "text-green-600"
-                                : "text-muted-foreground"
-                            )}
-                            title="نسخ الرسالة"
-                            aria-label="نسخ الرسالة"
-                          >
-                            {copiedId === messageId ? (
-                              <Check className="size-4" />
-                            ) : (
-                              <Copy className="size-4" />
-                            )}
-                          </button>
-                          {onDeleteMessage && (
+                        {!isEditing && (
+                          <div className="absolute -right-16 top-0 flex gap-1 opacity-0 group-hover/message:opacity-100 transition-opacity">
                             <button
-                              onClick={() => handleDeleteMessage(messageId)}
-                              className="p-1 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-                              title="حذف الرسالة"
-                              aria-label="حذف الرسالة"
+                              onClick={() =>
+                                handleCopyMessage(message.content, messageId)
+                              }
+                              className={cn(
+                                "p-1 rounded hover:bg-accent transition-colors",
+                                copiedId === messageId
+                                  ? "text-green-600"
+                                  : "text-muted-foreground"
+                              )}
+                              title="نسخ الرسالة"
+                              aria-label="نسخ الرسالة"
                             >
-                              <Trash2 className="size-4" />
+                              {copiedId === messageId ? (
+                                <Check className="size-4" />
+                              ) : (
+                                <Copy className="size-4" />
+                              )}
                             </button>
-                          )}
-                        </div>
+                            {message.role === "user" && onEditMessage && (
+                              <button
+                                onClick={() => handleEditMessage(messageId)}
+                                className="p-1 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-primary"
+                                title="تعديل الرسالة"
+                                aria-label="تعديل الرسالة"
+                              >
+                                ✎
+                              </button>
+                            )}
+                            {onDeleteMessage && (
+                              <button
+                                onClick={() => handleDeleteMessage(messageId)}
+                                className="p-1 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+                                title="حذف الرسالة"
+                                aria-label="حذف الرسالة"
+                              >
+                                <Trash2 className="size-4" />
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {message.role === "user" && (
@@ -461,7 +678,7 @@ export function AIChatBox({
 
                 {isLoading && (
                   <div
-                    className="flex items-start gap-3"
+                    className="flex items-start gap-3 animate-in fade-in"
                     style={
                       minHeightForLastMessage > 0
                         ? { minHeight: `${minHeightForLastMessage}px` }
