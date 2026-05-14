@@ -1,7 +1,7 @@
 /**
- * QADashboard — v4
- * ─────────────────
- * Full redesign of the QA review interface.
+ * QADashboard — v4 (Fixed)
+ * ─────────────────────────
+ * Full redesign of the QA review interface with proper tRPC integration.
  *
  * New in v4:
  *   - Split-pane layout: queue list (left) + focused review (right)
@@ -14,7 +14,7 @@
  *   - Progress bar showing queue drain
  *   - Session stats strip (approved/rejected this session)
  *   - AI review & spam badges (preserved from v3)
- *   - Uses manager.qaApprove / manager.qaReject when available; falls back to qa.*
+ *   - Uses manager.qaApprove / manager.qaReject with correct payloads
  */
 
 import ArabAnnotatorsDashboardLayout from "@/components/ArabAnnotatorsDashboardLayout";
@@ -35,6 +35,22 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface QAItem {
+  taskId: number;
+  content: string;
+  isHoneyPot?: boolean;
+  taskStatus?: string;
+  annId: number;
+  annResult: any;
+  annUserId: number;
+  annTimeSpent?: number | null;
+  aiSuggestion?: any;
+  annotatorName?: string;
+  annotatorSkill?: number;
+  projectId?: number;
+}
 
 // ─── Preset reject reasons ────────────────────────────────────────────────────
 const REJECT_PRESETS = [
@@ -115,51 +131,74 @@ export default function QADashboard() {
   const feedbackRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Data ───────────────────────────────────────────────────────────────────
-  const { data: qaQueue = [], isLoading, refetch } = trpc.qa.getQueue.useQuery(undefined, {
-    refetchInterval: 30_000,
-  });
-  const { data: stats, refetch: refetchStats } = trpc.qa.getStats.useQuery();
+  // Get all projects first to determine available projects
   const { data: allProjects = [] } = trpc.projects.getAll.useQuery();
+  
+  // Get QA queue from manager router with project filter
+  const { data: qaQueueData = { items: [], total: 0 }, isLoading, refetch } = trpc.manager.getQAQueue.useQuery(
+    { projectId: projectFilter ?? (allProjects[0]?.id ?? 0), limit: 100, offset: 0 },
+    { enabled: projectFilter !== null || allProjects.length > 0, refetchInterval: 30_000 }
+  );
+
+  const qaQueue = qaQueueData.items || [];
 
   // ── Filtered queue ─────────────────────────────────────────────────────────
   const pending = useMemo(() => {
-    let q = (qaQueue as any[]).filter(i => i.status === "pending_review");
-    if (projectFilter) q = q.filter(i => i.projectId === projectFilter);
-    return q;
-  }, [qaQueue, projectFilter]);
+    return (qaQueue as QAItem[]).filter(i => i.taskStatus === "IN_QA" || i.taskStatus === "submitted");
+  }, [qaQueue]);
 
   const focused = pending[focusedIdx] ?? null;
 
   // Multi-annotator comparison: find other annotations for same task
-  const { data: allForTask } = trpc.qa.getQueue.useQuery(undefined, {
-    enabled: splitView && !!focused?.taskId,
-    select: (data: any[]) =>
-      data.filter(i => i.taskId === focused?.taskId && i.id !== focused?.id),
-  });
-  const comparisons = (allForTask as any[] | undefined) ?? [];
+  const { data: allForTask } = trpc.manager.getQAQueue.useQuery(
+    { projectId: focused?.projectId ?? 0, limit: 100, offset: 0 },
+    {
+      enabled: splitView && !!focused?.taskId && focused.projectId !== undefined,
+      select: (data: any) =>
+        data.items?.filter((i: QAItem) => i.taskId === focused?.taskId && i.annId !== focused?.annId) ?? [],
+    }
+  );
+  const comparisons = (allForTask as QAItem[] | undefined) ?? [];
 
   // ── Mutations ──────────────────────────────────────────────────────────────
-  const approve = trpc.qa.approve.useMutation({
+  const approve = trpc.manager.qaApprove.useMutation({
     onSuccess: () => {
       toast.success("✅ تم القبول");
       setSessionApproved(n => n + 1);
-      setPendingAction(null); setFeedbackText("");
-      advanceFocus(); refetch(); refetchStats();
+      setPendingAction(null);
+      setFeedbackText("");
+      advanceFocus();
+      refetch();
     },
-    onError: e => toast.error(e.message),
+    onError: (e: any) => toast.error(e?.message || "حدث خطأ"),
   });
 
-  const reject = trpc.qa.reject.useMutation({
+  const reject = trpc.manager.qaReject.useMutation({
     onSuccess: () => {
       toast.success("❌ تم الرفض");
       setSessionRejected(n => n + 1);
-      setPendingAction(null); setFeedbackText("");
-      advanceFocus(); refetch(); refetchStats();
+      setPendingAction(null);
+      setFeedbackText("");
+      advanceFocus();
+      refetch();
     },
-    onError: e => toast.error(e.message),
+    onError: (e: any) => toast.error(e?.message || "حدث خطأ"),
   });
 
-  const isMutating = approve.isPending || reject.isPending;
+  const editAndApprove = trpc.manager.qaEditAndApprove.useMutation({
+    onSuccess: () => {
+      toast.success("✅ تم التعديل والقبول");
+      setSessionApproved(n => n + 1);
+      setPendingAction(null);
+      setFeedbackText("");
+      setEditResult("");
+      advanceFocus();
+      refetch();
+    },
+    onError: (e: any) => toast.error(e?.message || "حدث خطأ"),
+  });
+
+  const isMutating = approve.isPending || reject.isPending || editAndApprove.isPending;
 
   function advanceFocus() {
     setFocusedIdx(i => Math.min(i, pending.length - 2));
@@ -180,13 +219,13 @@ export default function QADashboard() {
         setFocusedIdx(i => Math.max(i - 1, 0));
         break;
       case "a": case "Enter":
-        if (focused) { e.preventDefault(); setPendingAction({ annotationId: focused.id, taskId: focused.taskId, type: "approve" }); }
+        if (focused) { e.preventDefault(); setPendingAction({ annotationId: focused.annId, taskId: focused.taskId, type: "approve" }); }
         break;
       case "r": case "Delete":
-        if (focused) { e.preventDefault(); setPendingAction({ annotationId: focused.id, taskId: focused.taskId, type: "reject" }); setTimeout(() => feedbackRef.current?.focus(), 100); }
+        if (focused) { e.preventDefault(); setPendingAction({ annotationId: focused.annId, taskId: focused.taskId, type: "reject" }); setTimeout(() => feedbackRef.current?.focus(), 100); }
         break;
       case "e":
-        if (focused) { e.preventDefault(); setEditResult(JSON.stringify(focused.result, null, 2)); setPendingAction({ annotationId: focused.id, taskId: focused.taskId, type: "edit" }); }
+        if (focused) { e.preventDefault(); setEditResult(JSON.stringify(focused.annResult, null, 2)); setPendingAction({ annotationId: focused.annId, taskId: focused.taskId, type: "edit" }); }
         break;
       case "b":
         e.preventDefault();
@@ -217,43 +256,53 @@ export default function QADashboard() {
     setSelectedIds(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
   function selectAll() {
-    setSelectedIds(selectedIds.size === pending.length ? new Set() : new Set(pending.map((i: any) => i.id)));
+    setSelectedIds(selectedIds.size === pending.length ? new Set() : new Set(pending.map((i: QAItem) => i.annId)));
   }
   async function batchApprove() {
     let done = 0;
     for (const id of selectedIds) {
-      try { await approve.mutateAsync({ annotationId: id }); done++; } catch {}
+      const item = pending.find((i: QAItem) => i.annId === id);
+      if (item) {
+        try { await approve.mutateAsync({ annotationId: id, taskId: item.taskId }); done++; } catch {}
+      }
     }
     toast.success(`✅ تم قبول ${done} توسيم`);
-    setSelectedIds(new Set()); setBatchMode(false);
+    setSelectedIds(new Set());
+    setBatchMode(false);
   }
   async function batchReject(reason: string) {
     let done = 0;
     for (const id of selectedIds) {
-      try { await reject.mutateAsync({ annotationId: id, feedback: reason }); done++; } catch {}
+      const item = pending.find((i: QAItem) => i.annId === id);
+      if (item) {
+        try { await reject.mutateAsync({ annotationId: id, taskId: item.taskId, feedback: reason }); done++; } catch {}
+      }
     }
     toast.success(`❌ تم رفض ${done} توسيم`);
-    setSelectedIds(new Set()); setBatchMode(false);
+    setSelectedIds(new Set());
+    setBatchMode(false);
   }
 
   async function confirmAction() {
-    if (!pendingAction) return;
+    if (!pendingAction || !focused) return;
     const { annotationId, type } = pendingAction;
-    if (type === "approve") await approve.mutateAsync({ annotationId, feedback: feedbackText || undefined });
-    else if (type === "reject") await reject.mutateAsync({ annotationId, feedback: feedbackText || "مرفوض" });
-    else if (type === "edit") {
-      // Edit + approve via manager router if available, else fallback
-      try {
+    
+    try {
+      if (type === "approve") {
+        await approve.mutateAsync({ annotationId, taskId: focused.taskId, feedback: feedbackText || undefined });
+      } else if (type === "reject") {
+        await reject.mutateAsync({ annotationId, taskId: focused.taskId, feedback: feedbackText || "مرفوض" });
+      } else if (type === "edit") {
         const parsed = JSON.parse(editResult);
-        await (trpc as any).manager?.qaEditAndApprove?.mutateAsync({
-          taskId: pendingAction.taskId,
+        await editAndApprove.mutateAsync({
+          taskId: focused.taskId,
           annotationId,
           correctedResult: parsed,
           feedback: feedbackText || "تم التعديل",
-        }).catch(() =>
-          approve.mutateAsync({ annotationId, feedback: feedbackText || "تم التعديل" })
-        );
-      } catch { toast.error("JSON غير صالح"); return; }
+        });
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "حدث خطأ");
     }
   }
 
@@ -269,10 +318,10 @@ export default function QADashboard() {
     );
   }
 
-  const queueTotal  = (qaQueue as any[]).length;
+  const queueTotal  = qaQueue.length;
   const drainPct    = queueTotal > 0 ? Math.round(((queueTotal - pending.length) / queueTotal) * 100) : 100;
   const projectOpts = allProjects.filter(p =>
-    (qaQueue as any[]).some(i => (i as any).projectId === p.id)
+    qaQueue.some((i: QAItem) => i.projectId === p.id)
   );
 
   return (
@@ -313,197 +362,173 @@ export default function QADashboard() {
               <select
                 value={projectFilter ?? ""}
                 onChange={e => setProjectFilter(e.target.value ? Number(e.target.value) : null)}
-                className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600"
+                className="text-xs px-2 py-1 border border-slate-200 rounded-lg bg-white"
               >
-                <option value="">كل المشاريع</option>
+                <option value="">جميع المشاريع</option>
                 {projectOpts.map(p => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             )}
 
-            <Button variant="outline" size="sm" onClick={() => setSplitView(v => !v)}
-              className={cn("gap-1.5", splitView && "bg-indigo-50 border-indigo-200 text-indigo-700")}>
-              <SplitSquareHorizontal size={13} />
-              {splitView ? "عرض مقارن" : "عادي"}
+            {/* Batch mode toggle */}
+            <Button
+              size="sm"
+              variant={batchMode ? "default" : "outline"}
+              onClick={() => setBatchMode(!batchMode)}
+              className="text-xs"
+            >
+              <Layers size={12} className="ml-1" /> دُفعة (B)
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setAiVisible(v => !v)}
-              className={cn("gap-1.5", aiVisible && "bg-violet-50 border-violet-200 text-violet-700")}>
-              {aiVisible ? <Eye size={13} /> : <EyeOff size={13} />}
-              AI
+
+            {/* Split view toggle */}
+            <Button
+              size="sm"
+              variant={splitView ? "default" : "outline"}
+              onClick={() => setSplitView(!splitView)}
+              className="text-xs"
+            >
+              <SplitSquareHorizontal size={12} className="ml-1" /> مقارنة (S)
             </Button>
-            <Button variant="outline" size="sm" onClick={() => { setBatchMode(m => !m); setSelectedIds(new Set()); }}
-              className={cn("gap-1.5", batchMode && "bg-blue-50 border-blue-200 text-blue-700")}>
-              <Layers size={13} />
-              {batchMode ? "إلغاء الدُفعة" : "دُفعة"}
+
+            {/* AI visibility toggle */}
+            <Button
+              size="sm"
+              variant={aiVisible ? "default" : "outline"}
+              onClick={() => setAiVisible(!aiVisible)}
+              className="text-xs"
+            >
+              {aiVisible ? <Eye size={12} /> : <EyeOff size={12} />} AI
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowShortcuts(true)} className="gap-1.5">
-              <Keyboard size={13} />
+
+            {/* Shortcuts */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowShortcuts(true)}
+              className="text-xs"
+            >
+              <Keyboard size={12} className="ml-1" /> ⌨️
             </Button>
-            <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
-              <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
+
+            {/* Refresh */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => refetch()}
+              disabled={isLoading}
+              className="text-xs"
+            >
+              <RefreshCw size={12} className={isLoading ? "animate-spin" : ""} />
             </Button>
           </div>
         </div>
 
-        {/* ── Keyboard hint bar ─────────────────────────────────────── */}
-        <div className="bg-slate-100 border-b border-slate-200 px-5 py-1.5 text-[11px] text-slate-400 flex gap-4 flex-wrap">
-          {[["J/K", "تنقل"], ["A", "قبول"], ["R", "رفض"], ["E", "تعديل"], ["B", "دُفعة"], ["S", "مقارنة"], ["?", "مساعدة"]].map(([k, d]) => (
-            <span key={k}><kbd className="px-1 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-mono ml-1">{k}</kbd>{d}</span>
-          ))}
-        </div>
-
-        {/* ── Batch actions bar ─────────────────────────────────────── */}
-        {batchMode && selectedIds.size > 0 && (
-          <div className="bg-blue-50 border-b border-blue-100 px-5 py-2.5 flex items-center gap-3 flex-wrap">
-            <span className="text-sm text-blue-700 font-medium">تم تحديد {selectedIds.size}</span>
-            <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={batchApprove} disabled={isMutating}>
-              <CheckCircle2 size={13} className="ml-1" /> قبول الكل
-            </Button>
-            <div className="flex gap-1 flex-wrap">
-              {REJECT_PRESETS.map(r => (
-                <button key={r} onClick={() => batchReject(r)}
-                  className="text-xs px-2 py-1 bg-red-50 border border-red-200 text-red-700 rounded-lg hover:bg-red-100 transition-colors">
-                  ✕ {r}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-500 hover:text-slate-700 mr-auto">
-              إلغاء التحديد
-            </button>
-          </div>
-        )}
-
-        {/* ── Stats strip ───────────────────────────────────────────── */}
-        <div className="bg-white border-b border-slate-100 px-5 py-2 grid grid-cols-4 gap-4 flex-shrink-0">
-          {[
-            { label: "معلقة",      value: stats?.pendingReviews ?? 0,    icon: <Clock size={13} className="text-amber-400" /> },
-            { label: "مكتملة",     value: stats?.completedReviews ?? 0,  icon: <CheckCircle2 size={13} className="text-green-500" /> },
-            { label: "قبول",       value: `${stats?.agreementRate ?? 0}%`, icon: <TrendingUp size={13} className="text-blue-500" /> },
-            { label: "رفض",        value: `${stats?.completedReviews ? Math.round(((stats as any).rejectedCount ?? 0) / stats.completedReviews * 100) : 0}%`, icon: <XCircle size={13} className="text-red-400" /> },
-          ].map(({ label, value, icon }) => (
-            <div key={label} className="flex items-center gap-2">
-              {icon}
-              <div>
-                <p className="text-base font-bold text-slate-800 leading-none">{value}</p>
-                <p className="text-[10px] text-slate-400">{label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Body: list + focused pane ─────────────────────────────── */}
-        <div className="flex flex-1 overflow-hidden">
-
-          {/* ── Queue list (left) ────────────────────────────────────── */}
-          <div className={cn(
-            "flex flex-col border-l border-slate-200 bg-white flex-shrink-0 overflow-y-auto",
-            splitView ? "w-72" : "w-80"
-          )}>
-            {/* List header */}
-            <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
-              <span className="text-xs font-semibold text-slate-600">{pending.length} مهمة معلقة</span>
-              {batchMode && (
-                <button onClick={selectAll} className="text-[11px] text-blue-600 hover:underline">
-                  {selectedIds.size === pending.length ? "إلغاء الكل" : "تحديد الكل"}
-                </button>
-              )}
+        {/* ── Main content ──────────────────────────────────────────── */}
+        <div className="flex-1 overflow-hidden flex gap-4 p-4">
+          {/* ── Queue list (left pane) ────────────────────────────── */}
+          <div className="w-72 flex-shrink-0 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+              <p className="text-xs font-semibold text-slate-600">
+                {batchMode ? "وضع الدُفعة" : "قائمة الانتظار"}
+              </p>
             </div>
 
             {isLoading ? (
               <div className="flex-1 flex items-center justify-center">
-                <div className="w-6 h-6 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                <p className="text-xs text-slate-400">جاري التحميل...</p>
               </div>
             ) : pending.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2 p-8">
-                <CheckCircle2 className="w-10 h-10 text-green-300" />
-                <p className="text-sm">لا توجد مراجعات معلقة 🎉</p>
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-xs text-slate-400">لا توجد مهام معلقة</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-50">
-                {pending.map((item: any, idx: number) => {
-                  const isFocused = idx === focusedIdx && !batchMode;
-                  const isSelected = selectedIds.has(item.id);
-                  return (
+              <>
+                {batchMode && (
+                  <div className="px-3 py-2 border-b border-slate-100 bg-blue-50 space-y-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={selectAll}
+                      className="w-full text-xs"
+                    >
+                      {selectedIds.size === pending.length ? "إلغاء التحديد" : "تحديد الكل"}
+                    </Button>
+                    {selectedIds.size > 0 && (
+                      <>
+                        <Button
+                          size="sm"
+                          className="w-full text-xs bg-green-600 hover:bg-green-700"
+                          onClick={batchApprove}
+                          disabled={isMutating}
+                        >
+                          قبول {selectedIds.size}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="w-full text-xs"
+                          onClick={() => batchReject("مرفوض")}
+                          disabled={isMutating}
+                        >
+                          رفض {selectedIds.size}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+                <div className="flex-1 overflow-y-auto">
+                  {pending.map((item: QAItem, idx: number) => (
                     <div
-                      key={item.id}
-                      onClick={() => batchMode ? toggleSelect(item.id) : setFocusedIdx(idx)}
+                      key={item.annId}
+                      onClick={() => {
+                        if (batchMode) toggleSelect(item.annId);
+                        else setFocusedIdx(idx);
+                      }}
                       className={cn(
-                        "px-4 py-3 cursor-pointer transition-all hover:bg-slate-50",
-                        isFocused  && "bg-indigo-50 border-r-[3px] border-indigo-500",
-                        isSelected && "bg-blue-50"
+                        "px-3 py-2.5 border-b border-slate-50 cursor-pointer transition-colors",
+                        focusedIdx === idx && !batchMode ? "bg-indigo-50 border-indigo-200" : "hover:bg-slate-50",
+                        batchMode && selectedIds.has(item.annId) ? "bg-blue-100" : ""
                       )}
                     >
-                      <div className="flex items-start gap-2">
-                        {batchMode && (
-                          <input type="checkbox" checked={isSelected}
-                            onChange={() => toggleSelect(item.id)}
-                            onClick={e => e.stopPropagation()}
-                            className="mt-1 accent-blue-500 flex-shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            {item.isHoneyPot && (
-                              <span className="text-[9px] bg-amber-100 text-amber-700 px-1 rounded font-bold">🍯</span>
-                            )}
-                            <span className="text-[11px] font-semibold text-slate-700 truncate">
-                              مهمة #{item.taskId}
-                            </span>
-                            <SkillBadge level={item.annotatorSkill ?? item.skillLevel} />
-                          </div>
-                          <p className="text-xs text-slate-500 truncate">{item.content ?? item.taskContent ?? "—"}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
-                              <User size={10} /> {item.annotatorName ?? item.taskerName ?? `#${item.userId}`}
-                            </span>
-                            {item.annTimeSpent > 0 && (
-                              <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
-                                <Clock size={10} /> {Math.round(item.annTimeSpent / 60)}د
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex-shrink-0 text-slate-300 self-center">
-                          <ChevronLeft size={14} />
-                        </div>
-                      </div>
+                      {batchMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(item.annId)}
+                          onChange={() => toggleSelect(item.annId)}
+                          className="mr-2"
+                        />
+                      )}
+                      <p className="text-xs font-semibold text-slate-900 line-clamp-2">
+                        {item.content ?? "—"}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                        <User size={9} /> {item.annotatorName ?? `#${item.annUserId}`}
+                        {item.isHoneyPot && <Badge className="text-[8px] px-1 py-0 ml-1">🍯 Honey Pot</Badge>}
+                      </p>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
 
-          {/* ── Focused review pane (right) ───────────────────────────── */}
-          <div className="flex-1 overflow-y-auto p-5 min-w-0">
-            {!focused ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
-                <CheckCircle2 className="w-14 h-14 text-green-200" />
-                <p className="text-lg font-medium">اختر مهمة من القائمة للمراجعة</p>
-                <p className="text-xs">أو استخدم J/K للتنقل</p>
-              </div>
-            ) : (
-              <div className="max-w-3xl mx-auto space-y-4">
-
-                {/* ── Task header ───────────────────────────────────── */}
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-                  <div className="flex items-start justify-between gap-3 mb-3">
+          {/* ── Review pane (right pane) ──────────────────────────── */}
+          <div className="flex-1 overflow-y-auto space-y-4">
+            {focused ? (
+              <>
+                {/* Header */}
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+                  <div className="flex items-start justify-between">
                     <div>
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h2 className="font-bold text-slate-900 text-base">مهمة #{focused.taskId}</h2>
-                        {focused.isHoneyPot && (
-                          <Badge className="bg-amber-100 text-amber-700 text-xs">🍯 Honey Pot</Badge>
-                        )}
-                        <SkillBadge level={focused.annotatorSkill ?? focused.skillLevel} />
-                        {focused.projectName && (
-                          <span className="text-xs text-slate-400 flex items-center gap-1">
-                            <Folder size={11} /> {focused.projectName}
-                          </span>
-                        )}
+                      <h2 className="text-sm font-bold text-slate-900">المهمة #{focused.taskId}</h2>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        {focused.isHoneyPot && <Badge className="text-xs">🍯 Honey Pot</Badge>}
+                        <SkillBadge level={focused.annotatorSkill} />
                       </div>
-                      <p className="text-xs text-slate-400 flex items-center gap-1">
-                        <User size={11} /> {focused.annotatorName ?? focused.taskerName ?? `#${focused.userId}`}
-                        {focused.annTimeSpent > 0 && (
+                      <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
+                        <User size={11} /> {focused.annotatorName ?? `#${focused.annUserId}`}
+                        {focused.annTimeSpent && focused.annTimeSpent > 0 && (
                           <span className="mr-2 flex items-center gap-1">
                             <Clock size={11} /> {Math.round(focused.annTimeSpent / 60)} دقيقة
                           </span>
@@ -529,7 +554,7 @@ export default function QADashboard() {
 
                   {/* Task content */}
                   <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-700 leading-relaxed" dir="rtl">
-                    {focused.content ?? focused.taskContent ?? "—"}
+                    {focused.content ?? "—"}
                   </div>
                 </div>
 
@@ -537,8 +562,8 @@ export default function QADashboard() {
                 {splitView && comparisons.length > 0 ? (
                   <div className="grid grid-cols-2 gap-4">
                     <AnnotationPane item={focused} label="التوسيم الحالي" highlight />
-                    {comparisons.slice(0, 1).map((c: any) => (
-                      <AnnotationPane key={c.id} item={c} label={`مقارنة: ${c.annotatorName ?? `#${c.userId}`}`} />
+                    {comparisons.slice(0, 1).map((c: QAItem) => (
+                      <AnnotationPane key={c.annId} item={c} label={`مقارنة: ${c.annotatorName ?? `#${c.annUserId}`}`} />
                     ))}
                   </div>
                 ) : (
@@ -548,8 +573,8 @@ export default function QADashboard() {
                 {/* ── AI badges ─────────────────────────────────────── */}
                 {aiVisible && (
                   <div className="space-y-2">
-                    <AiReviewBadge annotationId={focused.id} />
-                    <SpamBadge annotationId={focused.id} />
+                    <AiReviewBadge annotationId={focused.annId} />
+                    <SpamBadge annotationId={focused.annId} />
                   </div>
                 )}
 
@@ -558,7 +583,7 @@ export default function QADashboard() {
                   <div className="flex gap-2">
                     <Button
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                      onClick={() => setPendingAction({ annotationId: focused.id, taskId: focused.taskId, type: "approve" })}
+                      onClick={() => setPendingAction({ annotationId: focused.annId, taskId: focused.taskId, type: "approve" })}
                       disabled={isMutating}
                     >
                       <CheckCircle2 size={15} className="ml-1.5" /> قبول (A)
@@ -566,7 +591,7 @@ export default function QADashboard() {
                     <Button
                       className="flex-1"
                       variant="destructive"
-                      onClick={() => { setPendingAction({ annotationId: focused.id, taskId: focused.taskId, type: "reject" }); setTimeout(() => feedbackRef.current?.focus(), 100); }}
+                      onClick={() => { setPendingAction({ annotationId: focused.annId, taskId: focused.taskId, type: "reject" }); setTimeout(() => feedbackRef.current?.focus(), 100); }}
                       disabled={isMutating}
                     >
                       <XCircle size={15} className="ml-1.5" /> رفض (R)
@@ -574,7 +599,7 @@ export default function QADashboard() {
                     <Button
                       variant="outline"
                       className="border-blue-200 text-blue-600 hover:bg-blue-50"
-                      onClick={() => { setEditResult(JSON.stringify(focused.result ?? {}, null, 2)); setPendingAction({ annotationId: focused.id, taskId: focused.taskId, type: "edit" }); }}
+                      onClick={() => { setEditResult(JSON.stringify(focused.annResult ?? {}, null, 2)); setPendingAction({ annotationId: focused.annId, taskId: focused.taskId, type: "edit" }); }}
                       disabled={isMutating}
                     >
                       <Pencil size={15} className="ml-1.5" /> تعديل (E)
@@ -587,7 +612,7 @@ export default function QADashboard() {
                     <div className="flex flex-wrap gap-1.5">
                       {REJECT_PRESETS.map(r => (
                         <button key={r}
-                          onClick={() => reject.mutate({ annotationId: focused.id, feedback: r })}
+                          onClick={() => reject.mutate({ annotationId: focused.annId, taskId: focused.taskId, feedback: r })}
                           className="text-xs px-2.5 py-1 bg-red-50 border border-red-100 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
                           disabled={isMutating}>
                           ✕ {r}
@@ -597,6 +622,10 @@ export default function QADashboard() {
                   </div>
                 </div>
 
+              </>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-sm text-slate-400">لا توجد مهام لمراجعتها</p>
               </div>
             )}
           </div>
@@ -707,7 +736,7 @@ export default function QADashboard() {
 
 // ─── Annotation display pane ──────────────────────────────────────────────────
 function AnnotationPane({ item, label, highlight }: {
-  item: any; label: string; highlight?: boolean;
+  item: QAItem; label: string; highlight?: boolean;
 }) {
   return (
     <div className={cn(
@@ -724,15 +753,15 @@ function AnnotationPane({ item, label, highlight }: {
         )}
       </div>
       <div className="p-4">
-        {item.result ? (
+        {item.annResult ? (
           <AnnotationWidget
+            text={item.content ?? ""}
             config={{
-              type: (item.annotationType ?? "classification") as any,
-              labels: (item.labelsConfig as any)?.labels ?? [],
+              type: "classification" as const,
+              labels: [],
               instructions: "",
             }}
-            content={item.content ?? item.taskContent ?? ""}
-            value={item.result as any}
+            value={item.annResult as any}
             onChange={() => {}}
             readOnly
           />
