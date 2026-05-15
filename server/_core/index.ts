@@ -124,7 +124,7 @@ async function startServer() {
   // ── Health check endpoint (duplicate removed, already defined above) ──────────
   // Removed duplicate health check endpoint
 
-  const PORT = Number(process.env.PORT) || 8080;
+  const PORT = Number(process.env.PORT) || 3000;
 
   console.log(`[Startup] Attempting to listen on port ${PORT} (from process.env.PORT: ${process.env.PORT})`);
 

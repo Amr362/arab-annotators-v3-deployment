@@ -51,6 +51,6 @@ ENV NODE_ENV=production
 # EXPOSE 5000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
-  CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
+  CMD curl -f http://localhost:${PORT:-3000}/api/health || exit 1
 
 CMD ["sh", "-c", "pnpm start"]
