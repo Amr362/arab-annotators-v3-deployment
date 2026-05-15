@@ -29,10 +29,15 @@ export async function getDb() {
       // Force IPv4 and handle SSL in a single robust way
       const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
       
+      const isPooler = connectionString.includes('pooler');
+      
       _pool = new pg.Pool({
         connectionString,
-        max: 10,
+        max: isPooler ? 5 : 10,
         ssl: isLocal ? false : { rejectUnauthorized: false },
+        // Supabase pooler specific settings
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
       });
 
       _pool.on('error', (err) => {

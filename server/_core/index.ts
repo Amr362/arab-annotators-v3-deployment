@@ -1,5 +1,10 @@
 import "dotenv/config";
 import express from "express";
+
+// Fix for Supabase/Railway SSL issues with self-signed certificates
+if (process.env.NODE_ENV === "production") {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
