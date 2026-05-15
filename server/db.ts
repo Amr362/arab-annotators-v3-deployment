@@ -349,3 +349,149 @@ export async function markAllNotificationsRead(userId: number) {
   if (!db) return;
   await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId));
 }
+
+
+// ── Missing Functions for Tasker Feedback & Admin Operations ──────────────────
+
+/**
+ * Get feedback for a tasker on their submitted annotations
+ * Returns QA review feedback for annotations submitted by the user
+ */
+export async function getTaskerFeedback(userId: number) {
+  return withDb(async (db) => {
+    const feedback = await db.select({
+      id: annotations.id,
+      taskId: annotations.taskId,
+      taskContent: tasks.content,
+      result: annotations.result,
+      status: qaReviews.status,
+      feedback: qaReviews.feedback,
+      isHoneyPotCheck: annotations.isHoneyPotCheck,
+      honeyPotPassed: annotations.honeyPotPassed,
+      createdAt: annotations.createdAt,
+    })
+    .from(annotations)
+    .innerJoin(tasks, eq(annotations.taskId, tasks.id))
+    .leftJoin(qaReviews, eq(qaReviews.annotationId, annotations.id))
+    .where(and(eq(annotations.userId, userId), eq(annotations.isDraft, false)))
+    .orderBy(desc(annotations.createdAt));
+    
+    return feedback.map(f => ({
+      ...f,
+      status: (f.status ?? "pending_review") as "approved" | "rejected" | "pending_review",
+    }));
+  }, [], "getTaskerFeedback");
+}
+
+/**
+ * Assign multiple tasks to a user
+ */
+export async function assignTasksToUser(taskIds: number[], userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB offline");
+  
+  try {
+    await db.update(tasks)
+      .set({ assignedTo: userId, status: "assigned", updatedAt: new Date() })
+      .where(inArray(tasks.id, taskIds));
+    
+    return { success: true, assignedCount: taskIds.length };
+  } catch (error: any) {
+    console.error("[Database] assignTasksToUser failed:", error.message);
+    throw error;
+  }
+}
+
+/**
+ * Get unassigned tasks for a project
+ */
+export async function getUnassignedTasks(projectId: number, limit: number = 50) {
+  return withDb(async (db) => {
+    return await db.select({
+      id: tasks.id,
+      content: tasks.content,
+      status: tasks.status,
+      isGroundTruth: tasks.isGroundTruth,
+      difficulty: tasks.difficulty,
+      createdAt: tasks.createdAt,
+    })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), isNull(tasks.assignedTo)))
+    .limit(limit);
+  }, [], "getUnassignedTasks");
+}
+
+/**
+ * Reset user password
+ */
+export async function resetUserPassword(userId: number, newPassword: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB offline");
+  
+  try {
+    const passwordHash = await hashPassword(newPassword);
+    await db.update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error("[Database] resetUserPassword failed:", error.message);
+    throw error;
+  }
+}
+
+/**
+ * Get admin statistics
+ */
+export async function getAdminStats() {
+  return withDb(async (db) => {
+    const [totalUsers, totalProjects, totalTasks, totalAnnotations, pendingReviews] = await Promise.all([
+      db.select({ c: count() }).from(users),
+      db.select({ c: count() }).from(projects),
+      db.select({ c: count() }).from(tasks),
+      db.select({ c: count() }).from(annotations),
+      db.select({ c: count() }).from(annotations).where(eq(annotations.status, "pending_review")),
+    ]);
+    
+    return {
+      totalUsers: Number(totalUsers[0]?.c ?? 0),
+      totalProjects: Number(totalProjects[0]?.c ?? 0),
+      totalTasks: Number(totalTasks[0]?.c ?? 0),
+      totalAnnotations: Number(totalAnnotations[0]?.c ?? 0),
+      pendingReviews: Number(pendingReviews[0]?.c ?? 0),
+    };
+  }, { totalUsers: 0, totalProjects: 0, totalTasks: 0, totalAnnotations: 0, pendingReviews: 0 }, "getAdminStats");
+}
+
+/**
+ * Get leaderboard of top annotators
+ */
+export async function getLeaderboard(limit: number = 10) {
+  return withDb(async (db) => {
+    const leaderboard = await db.select({
+      userId: annotations.userId,
+      userName: users.name,
+      totalAnnotations: count(annotations.id),
+      approvedCount: count(sql`CASE WHEN ${annotations.status} = 'approved' THEN 1 END`),
+      rejectedCount: count(sql`CASE WHEN ${annotations.status} = 'rejected' THEN 1 END`),
+    })
+    .from(annotations)
+    .innerJoin(users, eq(annotations.userId, users.id))
+    .where(eq(annotations.isDraft, false))
+    .groupBy(annotations.userId, users.name)
+    .orderBy(desc(count(annotations.id)))
+    .limit(limit);
+    
+    return leaderboard.map(row => ({
+      userId: row.userId,
+      userName: row.userName,
+      totalAnnotations: Number(row.totalAnnotations),
+      approvedCount: Number(row.approvedCount),
+      rejectedCount: Number(row.rejectedCount),
+      approvalRate: row.totalAnnotations > 0 
+        ? Math.round((Number(row.approvedCount) / Number(row.totalAnnotations)) * 100)
+        : 0,
+    }));
+  }, [], "getLeaderboard");
+}
