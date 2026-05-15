@@ -13,7 +13,7 @@ import { sdk } from "./sdk";
 import { ENV } from "./env";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./cookies";
-import { users as usersTable } from "../drizzle/schema";
+import { users as usersTable } from "../../drizzle/schema.ts";
 import { eq } from "drizzle-orm";
 
 function isPortAvailable(port: number): Promise<boolean> {
