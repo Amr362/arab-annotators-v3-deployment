@@ -4,9 +4,10 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "node dist/index.js"
-# healthcheckPath = "/api/health"
-healthcheckTimeout = 60
+healthcheckPath = "/api/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
 
 [env]
 NODE_ENV = "production"
-# PORT = "5000"
+PORT = "5000"
