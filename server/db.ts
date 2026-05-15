@@ -35,11 +35,9 @@ export async function getDb() {
       // Improved SSL configuration to handle Railway/Postgres warnings
       // We use 'sslmode=verify-full' logic or similar if needed via connection string
       // but for pg-pool, we configure the ssl object.
-      const sslConfig = (ENV.isProduction || isSupabase || isPooler || connectionString.includes('railway.app')) 
-        ? { 
-            rejectUnauthorized: false, // Set to true if you have the CA certificate
-          } 
-        : false;
+      const sslConfig = { 
+        rejectUnauthorized: false, 
+      };
 
       _pool = new pg.Pool({
         connectionString,
