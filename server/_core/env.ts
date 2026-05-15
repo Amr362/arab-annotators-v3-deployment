@@ -12,3 +12,13 @@ export const ENV = {
   adminPassword: process.env.ADMIN_PASSWORD ?? "",
   adminName: process.env.ADMIN_NAME ?? "",
 };
+
+// Validate critical environment variables
+if (process.env.NODE_ENV === "production") {
+  if (!ENV.databaseUrl) {
+    console.warn("[Env] WARNING: DATABASE_URL is not set. Database operations will fail.");
+  }
+  if (!ENV.cookieSecret) {
+    console.warn("[Env] WARNING: JWT_SECRET or SESSION_SECRET is not set. Session management may fail.");
+  }
+}

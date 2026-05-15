@@ -137,6 +137,15 @@ async function startServer() {
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`📍 Available at http://0.0.0.0:${PORT}`);
   });
+
+  server.on('error', (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`[Startup] Port ${PORT} is already in use!`);
+    } else {
+      console.error(`[Startup] Server error:`, error);
+    }
+    process.exit(1);
+  });
 }
 
 startServer().catch(console.error);

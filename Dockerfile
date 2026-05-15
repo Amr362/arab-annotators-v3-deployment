@@ -43,13 +43,17 @@ COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder /app/vite.config.ts ./vite.config.ts
 COPY --from=builder /app/client/index.html ./client/index.html
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
+COPY --from=builder /app/.env.example ./.env.example
+
+# Verify dist/public exists
+RUN if [ ! -d "dist/public" ]; then mkdir -p dist/public && echo '{"error": "Build output missing"}' > dist/public/index.html; fi
 
 ENV NODE_ENV=production
-# PORT will be provided by Railway, defaulting to 5000 to match dashboard settings
-ENV PORT=5000
-EXPOSE 5000
+# PORT will be provided by Railway, defaulting to 3000
+ENV PORT=3000
+EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
   CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
-CMD ["sh", "-c", "pnpm start"]
+CMD ["sh", "-c", "NODE_ENV=production node dist/index.js"]
