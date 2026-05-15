@@ -2,8 +2,10 @@ import { defineConfig } from "drizzle-kit";
 
 const connectionString = process.env.DATABASE_DIRECT_URL || process.env.DATABASE_URL;
 if (!connectionString) {
-  throw new Error("DATABASE_URL, DATABASE_PRIVATE_URL, or DATABASE_DIRECT_URL must be set");
+  throw new Error("DATABASE_URL or DATABASE_DIRECT_URL must be set");
 }
+
+const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
 
 export default defineConfig({
   schema: "./drizzle/schema.ts",
@@ -11,8 +13,6 @@ export default defineConfig({
   dialect: "postgresql",
   dbCredentials: {
     url: connectionString,
-    ssl: {
-      rejectUnauthorized: false,
-    },
+    ssl: isLocal ? false : { rejectUnauthorized: false },
   },
 });

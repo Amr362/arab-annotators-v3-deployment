@@ -14,38 +14,25 @@ export async function getDb() {
   const dbUrl = ENV.databaseUrl;
 
   if (!dbUrl) {
-    console.error("[Database] CRITICAL: DATABASE_URL is missing! (Check Railway Variables)");
+    console.error("[Database] CRITICAL: DATABASE_URL is missing!");
     return null;
   }
 
-  console.log("[Database] Attempting to connect with URL length:", dbUrl.length);
-
   try {
     if (!_pool) {
-      // Handle cases where Railway might provide a URL without protocol
+      // Clean connection string and handle Railway/External DBs
       let connectionString = dbUrl.trim();
-      // Ensure the protocol is correct
       if (!connectionString.startsWith('postgresql://') && !connectionString.startsWith('postgres://')) {
         connectionString = `postgresql://${connectionString}`;
       }
 
-      const isSupabase = connectionString.includes('supabase.com');
-      const isPooler = connectionString.includes('pooler') || connectionString.includes(':6543');
+      // Force IPv4 and handle SSL in a single robust way
+      const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
       
-      // Improved SSL configuration to handle Railway/Postgres warnings
-      // We use 'sslmode=verify-full' logic or similar if needed via connection string
-      // but for pg-pool, we configure the ssl object.
-      const sslConfig = { 
-        rejectUnauthorized: false, 
-      };
-
       _pool = new pg.Pool({
         connectionString,
-        max: isPooler ? 5 : 10,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 10000,
-        ssl: sslConfig,
-        keepAlive: true,
+        max: 10,
+        ssl: isLocal ? false : { rejectUnauthorized: false },
       });
 
       _pool.on('error', (err) => {
@@ -57,16 +44,18 @@ export async function getDb() {
 
     _db = drizzle(_pool);
     
-    // Background connectivity test
-    _pool.query('SELECT NOW()')
-      .then((res) => console.log("[Database] Online! Server time:", res.rows[0].now))
-      .catch(err => {
-        console.error("[Database] Connectivity Check Failed:", err.message);
-      });
+    // Simple connectivity check
+    const client = await _pool.connect();
+    try {
+      await client.query('SELECT 1');
+      console.log("[Database] Connected successfully");
+    } finally {
+      client.release();
+    }
 
     return _db;
   } catch (error: any) {
-    console.error("[Database] Init Error:", error.message);
+    console.error("[Database] Connection Failed:", error.message);
     return null;
   }
 }
@@ -105,7 +94,6 @@ export async function verifyPassword(hash: string, plain: string) {
   return bcrypt.compare(plain, hash);
 }
 
-// Helper to wrap DB operations with consistent logging
 async function withDb<T>(op: (db: NonNullable<ReturnType<typeof drizzle>>) => Promise<T>, fallback: T, name: string): Promise<T> {
   const db = await getDb();
   if (!db) return fallback;
@@ -300,8 +288,6 @@ export async function updateProject(id: number, data: any) {
   return res[0];
 }
 
-// ── Missing Helpers for Routers ─────────────────────────────────────────────
-
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 10);
 }
@@ -329,7 +315,6 @@ export async function createProjectWithTasks(data: {
         content,
         status: "pending" as const,
       }));
-      // Insert in chunks if too many tasks
       const chunkSize = 100;
       for (let i = 0; i < taskValues.length; i += chunkSize) {
         await tx.insert(tasks).values(taskValues.slice(i, i + chunkSize));
@@ -358,24 +343,4 @@ export async function markAllNotificationsRead(userId: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId));
-}
-
-export async function getTaskerFeedback(userId: number) {
-  return withDb(async (db) => {
-    return await db.select({
-      id: qaReviews.id,
-      annotationId: qaReviews.annotationId,
-      status: qaReviews.status,
-      feedback: qaReviews.feedback,
-      createdAt: qaReviews.createdAt,
-      projectName: projects.name,
-    })
-    .from(qaReviews)
-    .leftJoin(annotations, eq(qaReviews.annotationId, annotations.id))
-    .leftJoin(tasks, eq(annotations.taskId, tasks.id))
-    .leftJoin(projects, eq(tasks.projectId, projects.id))
-    .where(eq(annotations.userId, userId))
-    .orderBy(desc(qaReviews.createdAt))
-    .limit(10);
-  }, [], "getTaskerFeedback");
 }
