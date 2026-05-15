@@ -13,6 +13,8 @@ import { sdk } from "./sdk";
 import { ENV } from "./env";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./cookies";
+import { users as usersTable } from "../drizzle/schema";
+import { eq } from "drizzle-orm";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -76,20 +78,16 @@ async function startServer() {
 
       // 2. Auto-promote owner if configured
       if (ENV.ownerOpenId) {
-        const { users } = await import("../drizzle/schema");
-        const { eq } = await import("drizzle-orm");
         await database
-          .update(users)
+          .update(usersTable)
           .set({ role: "admin" })
-          .where(eq(users.openId, ENV.ownerOpenId));
+          .where(eq(usersTable.openId, ENV.ownerOpenId));
       }
 
       // 3. Ensure system user for background tasks
       const SYSTEM_EMAIL = "system@arab-annotators.local";
       const existingSystem = await db.getUserByIdentifier(SYSTEM_EMAIL);
       if (!existingSystem) {
-        const { users: usersTable } = await import("../drizzle/schema");
-        const { eq } = await import("drizzle-orm");
         await database.insert(usersTable).values({
           name: "System Worker",
           email: SYSTEM_EMAIL,
@@ -105,8 +103,6 @@ async function startServer() {
       const AI_EMAIL = "ai-assistant@arab-annotators.local";
       const existingAI = await db.getUserByIdentifier(AI_EMAIL);
       if (!existingAI) {
-        const { users: usersTable } = await import("../drizzle/schema");
-        const { eq } = await import("drizzle-orm");
         await database.insert(usersTable).values({
           name: "AI Assistant",
           email: AI_EMAIL,
