@@ -45,11 +45,12 @@ COPY --from=builder /app/client/index.html ./client/index.html
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 ENV NODE_ENV=production
-ENV PORT=5000
+# PORT will be provided by Railway
+# ENV PORT=5000
 
-EXPOSE 5000
+# EXPOSE 5000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
-  CMD curl -f http://localhost:${PORT:-5000}/api/health || exit 1
+  CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
 
 CMD ["sh", "-c", "pnpm start"]

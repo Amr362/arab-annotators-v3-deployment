@@ -126,6 +126,8 @@ async function startServer() {
 
   const PORT = Number(process.env.PORT) || 8080;
 
+  console.log(`[Startup] Attempting to listen on port ${PORT} (from process.env.PORT: ${process.env.PORT})`);
+
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`📍 Available at http://0.0.0.0:${PORT}`);
