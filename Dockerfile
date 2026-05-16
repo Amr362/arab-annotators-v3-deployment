@@ -56,4 +56,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
   CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
-CMD ["sh", "-c", "NODE_ENV=production node dist/index.js"]
+CMD ["node", "dist/index.js"]

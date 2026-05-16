@@ -3,7 +3,7 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "NODE_ENV=production node dist/index.js"
+startCommand = "node dist/index.js"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
@@ -11,3 +11,4 @@ restartPolicyType = "ON_FAILURE"
 [env]
 NODE_ENV = "production"
 PORT = "3000"
+NPM_CONFIG_PRODUCTION = "true"
