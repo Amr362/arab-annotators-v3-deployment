@@ -7,6 +7,7 @@ if (!connectionString) {
 }
 
 const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+const isRailwayInternal = connectionString.includes('railway.internal');
 
 export default defineConfig({
   schema: "./drizzle/schema.ts",
@@ -14,6 +15,6 @@ export default defineConfig({
   dialect: "postgresql",
   dbCredentials: {
     url: connectionString,
-    ssl: isLocal ? false : { rejectUnauthorized: false },
+    ssl: (isLocal || isRailwayInternal) ? false : { rejectUnauthorized: false },
   },
 });

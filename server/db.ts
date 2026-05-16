@@ -28,14 +28,15 @@ export async function getDb() {
 
       // Force IPv4 and handle SSL in a single robust way
       const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+      const isRailwayInternal = connectionString.includes('railway.internal');
       
       const isPooler = connectionString.includes('pooler');
       
       _pool = new pg.Pool({
         connectionString,
         max: isPooler ? 5 : 10,
-        ssl: isLocal ? false : { rejectUnauthorized: false },
-        // Supabase pooler specific settings
+        // Disable SSL for internal Railway connections to avoid certificate issues
+        ssl: (isLocal || isRailwayInternal) ? false : { rejectUnauthorized: false },
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
       });
